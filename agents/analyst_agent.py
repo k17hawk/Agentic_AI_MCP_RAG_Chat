@@ -2,8 +2,8 @@ from crewai import Agent,LLM
 from tools.stock_research_tool import get_stock_price
 
 #initializing the language model (LLM) for the agent
-llm =  LLM(model='groq/llama-3.3-70b-versatile',
-           temperature=0.0)
+llm = LLM(model='groq/llama-3.3-70b-versatile', temperature=0.0)
+
 
 analyst_agent = Agent(
     role="Financial Market Analyst",
