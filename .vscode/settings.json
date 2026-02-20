@@ -1,0 +1,10 @@
+{
+    "python.defaultInterpreterPath": "/home/lang-chain/Documents/Agentic_AI_MCP_RAG_Chat/.conda/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    "python.condaPath": "/home/lang-chain/miniconda3/bin/conda",
+    "python.pythonPath": "/home/lang-chain/Documents/Agentic_AI_MCP_RAG_Chat/.conda/bin/python",
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "python-envs.pythonProjects": []
+}
