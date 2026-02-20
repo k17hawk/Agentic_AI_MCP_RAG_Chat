@@ -35,5 +35,5 @@ def get_stock_price(stock_symbol: str) -> str:
     except Exception as e:
         return f"Error fetching data for stock symbol: {stock_symbol}. Please check the symbol and try again. Error details: {str(e)}"
 
-result = get_stock_price.run("AAPL")
-print(result)
+# result = get_stock_price.run("AAPL")
+# print(result)
