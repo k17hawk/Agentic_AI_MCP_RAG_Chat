@@ -3,3 +3,4 @@ python-dotenv
 langchain
 llama-index
 llama-index-llms-groq
+pydantic-ai "pydantic-ai-slim[groq]"
