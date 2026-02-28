@@ -7,3 +7,5 @@ yFinance
 crewai
 litellm
 tavily-python
+python-telegram-bot
+twilio   
