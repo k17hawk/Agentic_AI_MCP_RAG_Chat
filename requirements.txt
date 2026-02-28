@@ -6,4 +6,4 @@ llama-index-llms-groq
 yFinance   
 crewai
 litellm
-
+tavily-python
