@@ -10,3 +10,4 @@ tavily-python
 python-telegram-bot
 twilio   
 fpdf2
+ta
