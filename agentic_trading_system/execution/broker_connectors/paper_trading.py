@@ -6,7 +6,7 @@ from datetime import datetime
 import random
 import yfinance as yf
 from utils.logger import logger as logging
-
+import asyncio
 class PaperTrading:
     """
     Paper Trading - Simulated trading environment
