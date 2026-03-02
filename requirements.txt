@@ -13,3 +13,4 @@ fpdf2
 ta
 SciPy
 loguru
+spacy
