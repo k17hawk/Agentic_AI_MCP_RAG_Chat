@@ -3,7 +3,7 @@ Sentiment Scorer - Analyzes sentiment of news articles
 """
 from typing import Dict, List, Optional
 import re
-from logger import logging as logger
+from loguru import logger
 import numpy as np
 
 class SentimentScorer:

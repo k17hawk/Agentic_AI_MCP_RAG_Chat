@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
 from scipy import stats
-from logger import logging as logger
+from loguru import logger
 
 
 

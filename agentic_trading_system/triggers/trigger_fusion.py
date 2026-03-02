@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import asyncio
 import uuid
 from collections import defaultdict
-from logger import logging as logger
+from loguru import logger
 from typing import Any
 import numpy as np
 from pydantic import BaseModel,Field

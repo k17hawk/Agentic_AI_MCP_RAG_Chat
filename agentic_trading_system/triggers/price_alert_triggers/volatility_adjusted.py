@@ -4,7 +4,7 @@ Volatility Adjuster - Dynamic thresholds based on market volatility
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional
-from logger import logging as logger
+from loguru import logger
 class VolatilityAdjuster:
     """
     Calculates dynamic thresholds based on volatility

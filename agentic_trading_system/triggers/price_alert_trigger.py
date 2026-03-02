@@ -8,8 +8,7 @@ import asyncio
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from logger import logging as logger
-
+from loguru import logger
 from triggers.base_trigger import BaseTrigger, TriggerEvent
 from triggers.price_alert_triggers.sliding_window import SlidingWindowAnalyzer
 from triggers.price_alert_triggers.volatility_adjusted import VolatilityAdjuster

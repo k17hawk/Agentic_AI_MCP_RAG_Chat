@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import asyncio
 import aiohttp
-from logger import logging as logger
+from loguru import logger
 import json
 
 from triggers.base_trigger import BaseTrigger, TriggerEvent

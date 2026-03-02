@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 import pandas as pd
 import numpy as np
 from scipy.signal import argrelextrema
-from logger import logging as logger
+from loguru import logger
 
 
 class TechnicalPatterns:

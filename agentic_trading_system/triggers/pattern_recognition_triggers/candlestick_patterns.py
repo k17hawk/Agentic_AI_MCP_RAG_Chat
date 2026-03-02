@@ -4,7 +4,7 @@ Candlestick Patterns - Detects Japanese candlestick patterns
 from typing import List, Dict, Optional
 import pandas as pd
 import numpy as np
-from logger import logging as logger
+from loguru import logger
 class CandlestickPatterns:
     """
     Detects common candlestick patterns:

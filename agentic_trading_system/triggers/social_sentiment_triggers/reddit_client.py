@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import asyncio
 import aiohttp
 import re
-from logger import logging as logger
+from loguru import logger
 
 class RedditClient:
     """

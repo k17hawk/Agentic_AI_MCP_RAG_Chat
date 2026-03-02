@@ -7,7 +7,7 @@ import asyncio
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from logger import logging as logger
+from loguru import logger
 from triggers.base_trigger import BaseTrigger, TriggerEvent
 
 class VolumeSpikeTrigger(BaseTrigger):

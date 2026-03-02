@@ -1,0 +1,17 @@
+[build-system]
+requires = ['setuptools>=67.4.0', "wheel"]
+build-backend = "setuptools.build_meta"
+
+#look into tests for testing
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests"
+    ]
+
+[tool.mypy]
+
+#always in src for our source
+
+mypy_path = "agentic_trading_system"
+ignore_missing_imports = true

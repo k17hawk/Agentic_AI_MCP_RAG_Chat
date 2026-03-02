@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import datetime, time, timedelta
 import asyncio
 import pytz
-from logger import logging as logger
+from loguru import logger
 import re
 
 from triggers.base_trigger import BaseTrigger, TriggerEvent, TriggerConfig

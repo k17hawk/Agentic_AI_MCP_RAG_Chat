@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, validator
 from enum import Enum
 import pandas as pd
 import numpy as np
-from logger import logging as logger
+from loguru import logger
 from scipy import stats
 import json
 

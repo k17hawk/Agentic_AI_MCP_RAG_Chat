@@ -5,7 +5,7 @@ Coordinates execution, priority, and resource allocation
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import asyncio
-from logger import logging as logger
+from loguru import logger
 from enum import Enum
 
 class TriggerPriority(Enum):

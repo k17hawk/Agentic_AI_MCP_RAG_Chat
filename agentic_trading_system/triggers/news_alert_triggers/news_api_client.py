@@ -5,7 +5,8 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 import aiohttp
 import asyncio
-from logger import logging as logger
+
+from loguru import logger
 import hashlib
 
 class NewsAPIClient:

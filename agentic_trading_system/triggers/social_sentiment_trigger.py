@@ -4,7 +4,7 @@ Social Sentiment Trigger - Monitors social media for sentiment
 from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 import asyncio
-from logger import logging as logger
+from loguru import logger
 
 from triggers.base_trigger import BaseTrigger, TriggerEvent
 from triggers.social_sentiment_triggers.twitter_client import TwitterClient

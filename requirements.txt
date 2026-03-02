@@ -12,3 +12,4 @@ twilio
 fpdf2
 ta
 SciPy
+loguru
