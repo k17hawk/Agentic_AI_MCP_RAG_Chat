@@ -2,7 +2,7 @@
 Models - Pydantic models for memory storage
 """
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime,timedelta
 from pydantic import BaseModel, Field, validator
 import uuid
 
