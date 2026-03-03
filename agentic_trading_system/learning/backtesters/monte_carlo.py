@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 import os
 from utils.logger import logger as  logging
-from learning.backtester.simulation_engine import SimulationEngine
+from learning.backtesters.simulation_engine import SimulationEngine
 class MonteCarlo:
     """
     Monte Carlo - Monte Carlo simulation for risk analysis

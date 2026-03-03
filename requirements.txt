@@ -14,3 +14,6 @@ ta
 SciPy
 loguru
 spacy
+redis   
+statsmodels
+scikit-learn

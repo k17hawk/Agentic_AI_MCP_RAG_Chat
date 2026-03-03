@@ -17,9 +17,9 @@ from learning.models.weight_optimizer import WeightOptimizer
 from learning.models.genetic_algorithm import GeneticAlgorithm
 from learning.models.reinforcement_learning import ReinforcementLearning
 from learning.models.ensemble_model import EnsembleModel
-from learning.backtester.simulation_engine import SimulationEngine
-from learning.backtester.monte_carlo import MonteCarlo
-from learning.backtester.walk_forward import WalkForward
+from learning.backtesters.simulation_engine import SimulationEngine
+from learning.backtesters.monte_carlo import MonteCarlo
+from learning.backtesters.walk_forward import WalkForward
 
 class LearningOrchestrator(BaseAgent):
     """

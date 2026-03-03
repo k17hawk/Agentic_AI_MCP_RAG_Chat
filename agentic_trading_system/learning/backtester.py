@@ -10,9 +10,10 @@ import os
 from utils.logger import logging
 
 # Import backtester components
-from learning.backtester.simulation_engine import SimulationEngine
-from learning.backtester.monte_carlo import MonteCarlo
-from learning.backtester.walk_forward import WalkForward
+from learning.backtesters.simulation_engine import SimulationEngine
+from learning.backtesters.monte_carlo import MonteCarlo
+from learning.backtesters.walk_forward import WalkForward
+
 
 class Backtester:
     """
