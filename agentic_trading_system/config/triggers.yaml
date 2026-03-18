@@ -1,0 +1,188 @@
+# triggers.yaml
+# Configuration for all trigger agents
+
+# General trigger settings
+general:
+  enabled: true
+  max_concurrent_triggers: 5
+  default_priority: "MEDIUM"
+  min_confidence: 0.6
+  cooldown_seconds: 300
+
+# Watchlist for all triggers
+watchlist:
+  stocks:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - NVDA
+    - META
+    - TSLA
+    - JPM
+    - V
+    - WMT
+  crypto:
+    - BTC-USD
+    - ETH-USD
+  indices:
+    - ^GSPC
+    - ^IXIC
+    - ^DJI
+
+# Price Alert Trigger
+price_alert:
+  enabled: true
+  priority: "HIGH"
+  lookback_days: 60  # YOUR 60-DAY REQUIREMENT
+  min_sample_size: 30
+  z_score_threshold: 2.0
+  p_value_threshold: 0.05
+  volatility_multiplier: 1.5
+  min_absolute_move: 1.0
+  timeframes:
+    short: 5
+    medium: 20
+    long: 60
+    yearly: 252
+  weights:
+    short: 0.2
+    medium: 0.5
+    long: 0.3
+
+# News Alert Trigger
+news_alert:
+  enabled: true
+  priority: "MEDIUM"
+  lookback_minutes: 60
+  max_articles_per_run: 50
+  min_sentiment_score: 0.6
+  impact_keywords:
+    - earnings
+    - beat
+    - miss
+    - upgrade
+    - downgrade
+    - acquisition
+    - merger
+    - fda approval
+    - breakthrough
+    - lawsuit
+    - investigation
+    - ceo
+    - resign
+    - bankruptcy
+    - stock split
+    - dividend
+    - buyback
+  sources:
+    - reuters
+    - bloomberg
+    - cnbc
+    - wsj
+    - financial-times
+    - seeking-alpha
+  api_endpoints:
+    newsapi: "https://newsapi.org/v2/everything"
+    alphavantage: "https://www.alphavantage.co/query"
+    fmp: "https://financialmodelingprep.com/api/v3/stock_news"
+
+# Volume Spike Trigger
+volume_spike:
+  enabled: true
+  priority: "MEDIUM"
+  volume_multiplier: 2.5
+  volume_lookback: 20
+  min_volume: 100000
+  require_price_move: true
+  min_price_move: 1.0
+  institutional_threshold: 0.7
+
+# Pattern Recognition Trigger
+pattern_recognition:
+  enabled: true
+  priority: "LOW"
+  min_pattern_confidence: 0.6
+  require_volume_confirmation: true
+  pattern_order: 5
+  min_pattern_size: 10
+  max_pattern_size: 50
+  pattern_tolerance: 0.03
+  candlestick_patterns:
+    - doji
+    - hammer
+    - shooting_star
+    - engulfing
+    - harami
+    - piercing_line
+    - dark_cloud_cover
+    - morning_star
+    - evening_star
+    - three_white_soldiers
+    - three_black_crows
+  chart_patterns:
+    - head_and_shoulders
+    - double_top
+    - double_bottom
+    - triple_top
+    - triple_bottom
+    - symmetrical_triangle
+    - ascending_triangle
+    - descending_triangle
+    - flag
+    - pennant
+    - wedge
+
+# Scheduled Trigger
+scheduled:
+  enabled: true
+  priority: "LOW"
+  market_timezone: "US/Eastern"
+  sessions:
+    pre_market:
+      start: "04:00"
+      end: "09:29"
+      frequency_minutes: 15
+      query: "Top pre-market gainers today US stocks"
+    market_open:
+      start: "09:30"
+      end: "11:29"
+      frequency_minutes: 5
+      query: "Top stocks gaining at market open today"
+    mid_day:
+      start: "11:30"
+      end: "13:59"
+      frequency_minutes: 30
+      query: "Momentum stocks midday trading US market"
+    pre_close:
+      start: "14:00"
+      end: "15:59"
+      frequency_minutes: 5
+      query: "Stocks gaining volume pre-market close"
+    after_hours:
+      start: "16:00"
+      end: "19:59"
+      frequency_minutes: 15
+      query: "After hours top gainers today"
+
+# Social Sentiment Trigger
+social_sentiment:
+  enabled: true
+  priority: "LOW"
+  platforms:
+    - twitter
+    - reddit
+    - stocktwits
+  min_mention_threshold: 10
+  sentiment_threshold: 0.6
+  lookback_minutes: 30
+  subreddits:
+    - wallstreetbets
+    - stocks
+    - investing
+    - options
+    - stockmarket
+  rate_limits:
+    twitter: 30
+    reddit: 30
+    stocktwits: 60

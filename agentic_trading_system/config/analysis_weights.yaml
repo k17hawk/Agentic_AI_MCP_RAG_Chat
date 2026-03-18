@@ -1,0 +1,200 @@
+# analysis_weights.yaml
+# Configuration for analysis layer weights and parameters
+
+# Technical Analysis
+technical:
+  enabled: true
+  priority: "HIGH"
+  required_days: 60  # YOUR 60-DAY REQUIREMENT
+  
+  # Indicator weights for technical scoring
+  indicator_weights:
+    trend: 0.30
+    momentum: 0.25
+    volume: 0.20
+    volatility: 0.15
+    pattern: 0.10
+  
+  # RSI thresholds
+  rsi:
+    period: 14
+    oversold: 30
+    overbought: 70
+  
+  # MACD settings
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+  
+  # Moving averages
+  moving_averages:
+    periods: [5, 10, 20, 50, 100, 200]
+    weights:
+      ma20: 0.3
+      ma50: 0.3
+      ma200: 0.4
+  
+  # Bollinger Bands
+  bollinger:
+    period: 20
+    std_dev: 2
+  
+  # Volume indicators
+  volume:
+    ma_periods: [5, 10, 20, 50]
+    spike_threshold: 2.0
+    mfi_period: 14
+    cmf_period: 20
+
+# Fundamental Analysis
+fundamental:
+  enabled: true
+  priority: "MEDIUM"
+  
+  # Category weights
+  weights:
+    valuation: 0.25
+    growth: 0.25
+    profitability: 0.20
+    solvency: 0.15
+    liquidity: 0.10
+    efficiency: 0.05
+  
+  # Valuation thresholds
+  valuation:
+    pe_undervalued: 15
+    pe_fair: 25
+    pe_overvalued: 30
+    pb_undervalued: 1.0
+    pb_fair: 3.0
+    pb_overvalued: 5.0
+    ps_undervalued: 1.0
+    ps_fair: 3.0
+    ps_overvalued: 5.0
+  
+  # Growth thresholds
+  growth:
+    strong: 20  # 20%+
+    moderate: 10  # 10-20%
+    low: 5  # 5-10%
+  
+  # Profitability thresholds
+  profitability:
+    roe_excellent: 20
+    roe_good: 15
+    roe_fair: 10
+    margin_excellent: 20
+    margin_good: 15
+    margin_fair: 10
+  
+  # Solvency thresholds
+  solvency:
+    de_ideal: 0.5
+    de_max: 1.5
+    interest_coverage_min: 3
+    interest_coverage_ideal: 5
+    debt_ebitda_ideal: 2
+    debt_ebitda_max: 4
+
+# Sentiment Analysis
+sentiment:
+  enabled: true
+  priority: "LOW"
+  
+  # Source weights
+  source_weights:
+    news: 0.35
+    social: 0.20
+    analyst: 0.25
+    insider: 0.10
+    institutional: 0.10
+  
+  min_source_confidence: 0.3
+  required_sources: 2
+  min_sentiment_score: 0.6
+  
+  # News sentiment
+  news:
+    lookback_days: 7
+    max_articles: 50
+    sources:
+      - reuters
+      - bloomberg
+      - cnbc
+      - wsj
+      - financial-times
+  
+  # Social sentiment
+  social:
+    lookback_hours: 24
+    min_mentions: 5
+    platforms:
+      - twitter
+      - reddit
+
+# Timeframe Aggregation
+timeframe:
+  enabled: true
+  
+  # Timeframe weights (40% for daily - YOUR 60-DAY CORE)
+  weights:
+    "5m": 0.05
+    "15m": 0.05
+    "1h": 0.10
+    "1d": 0.40  # 60-day window - PRIMARY
+    "1wk": 0.25
+    "1mo": 0.15
+  
+  min_timeframes: 3
+  alignment_threshold: 0.6
+  
+  # Required data periods for each timeframe
+  required_periods:
+    "5m": "5d"
+    "15m": "10d"
+    "1h": "1mo"
+    "1d": "6mo"
+    "1wk": "1y"
+    "1mo": "5y"
+
+# Regime-based weights
+regime_weights:
+  strong_bull_trending:
+    technical: 0.45
+    fundamental: 0.25
+    sentiment: 0.20
+    timeframe: 0.10
+  bull_trending:
+    technical: 0.40
+    fundamental: 0.25
+    sentiment: 0.20
+    timeframe: 0.15
+  bear_trending:
+    technical: 0.35
+    fundamental: 0.30
+    sentiment: 0.20
+    timeframe: 0.15
+  high_volatility:
+    technical: 0.30
+    fundamental: 0.20
+    sentiment: 0.35
+    timeframe: 0.15
+  ranging:
+    technical: 0.45
+    fundamental: 0.20
+    sentiment: 0.20
+    timeframe: 0.15
+  panic:
+    technical: 0.20
+    fundamental: 0.30
+    sentiment: 0.40
+    timeframe: 0.10
+
+# Score thresholds
+score_thresholds:
+  strong_buy: 0.8
+  buy: 0.65
+  watch: 0.5
+  sell: 0.35
+  strong_sell: 0.2
