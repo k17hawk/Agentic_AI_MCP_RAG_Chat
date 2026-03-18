@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 import subprocess
 import argparse
+import alembic
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -40,14 +41,6 @@ def run_migrations():
     print("=" * 60)
     print("🚀 Running Database Migrations")
     print("=" * 60)
-    
-    # Check if alembic is installed
-    try:
-        import alembic
-        print("✅ Alembic found")
-    except ImportError:
-        print("❌ Alembic not installed. Installing...")
-        subprocess.run([sys.executable, "-m", "pip", "install", "alembic"], check=True)
     
     # Setup alembic if needed
     setup_alembic()
