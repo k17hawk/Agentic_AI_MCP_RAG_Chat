@@ -7,14 +7,8 @@ import json
 import pickle
 import asyncio
 from utils.logger import logger as  logging
-
-try:
-    import redis.asyncio as redis
-    REDIS_AVAILABLE = True
-except ImportError:
-    REDIS_AVAILABLE = False
-    logging.warning("⚠️ redis.asyncio not available - using mock Redis")
-
+import redis
+REDIS_AVAILABLE = True
 class RedisClient:
     """
     Redis Client for short-term memory storage
