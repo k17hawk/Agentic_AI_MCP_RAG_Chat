@@ -4,6 +4,7 @@ Win Rate - Percentage of winning trades
 from typing import Dict, List, Optional, Any
 import numpy as np
 from utils.logger import logger as logging
+from scipy import stats
 
 class WinRate:
     """
@@ -204,8 +205,6 @@ class WinRate:
         """
         if n == 0:
             return (0, 0)
-        
-        from scipy import stats
         z = stats.norm.ppf(1 - (1 - confidence) / 2)
         
         # Wilson score interval
@@ -219,7 +218,7 @@ class WinRate:
         """
         Test if win rate is statistically significant (above 50%)
         """
-        from scipy import stats
+        
         
         n_wins = len(wins)
         n_losses = len(losses)
