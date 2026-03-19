@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import aiohttp
 import asyncio
+import re
 
 from agentic_trading_system.utils.logger import logger as logging
 from agentic_trading_system.utils.decorators import retry
@@ -52,23 +53,46 @@ class SocialMediaClient:
         await self._rate_limit()
         
         all_posts = []
+        platform_results = {}
         
         # Query platforms in parallel
         tasks = []
-        platforms = options.get("platforms", ["twitter", "reddit", "stocktwits"])
+        platforms = options.get("platforms", ["reddit", "stocktwits"])  # Twitter removed by default (requires paid tier)
         
         if "twitter" in platforms and self.twitter_bearer_token:
             tasks.append(self._search_twitter(query, options))
-        if "reddit" in platforms:  # No API key needed — uses public JSON endpoints
+        if "reddit" in platforms:
             tasks.append(self._search_reddit(query, options))
-        if "stocktwits" in platforms:  # No API key needed — uses public symbol stream endpoints
+        if "stocktwits" in platforms:
             tasks.append(self._search_stocktwits(query, options))
+        
+        if not tasks:
+            logging.warning("⚠️ No social media platforms configured")
+            return {
+                "items": [],
+                "metadata": {
+                    "total_found": 0,
+                    "unique_count": 0,
+                    "sentiment": {"average": 0.0, "positive": 0, "negative": 0, "neutral": 0},
+                    "platforms_used": []
+                }
+            }
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        for result in results:
-            if isinstance(result, list):
+        platform_names = []
+        for i, result in enumerate(results):
+            platform = platforms[i] if i < len(platforms) else f"platform_{i}"
+            if isinstance(result, Exception):
+                logging.warning(f"⚠️ Error from {platform}: {result}")
+                platform_results[platform] = {"status": "error", "count": 0}
+            elif isinstance(result, list):
                 all_posts.extend(result)
+                platform_results[platform] = {"status": "success", "count": len(result)}
+                platform_names.append(platform)
+                logging.info(f"✅ {platform} returned {len(result)} posts")
+            else:
+                platform_results[platform] = {"status": "error", "count": 0}
         
         # Deduplicate
         unique_posts = self._deduplicate(all_posts)
@@ -85,7 +109,8 @@ class SocialMediaClient:
                 "total_found": len(all_posts),
                 "unique_count": len(unique_posts),
                 "sentiment": sentiment,
-                "platforms_used": [p for p in platforms if self._has_api_key(p)]
+                "platforms_used": platform_names,
+                "platform_results": platform_results
             }
         }
         
@@ -99,6 +124,9 @@ class SocialMediaClient:
         if not self.twitter_bearer_token:
             return []
         
+        # Extract ticker or clean query for Twitter
+        search_query = self._format_twitter_query(query)
+        
         url = "https://api.twitter.com/2/tweets/search/recent"
         
         # Calculate time range
@@ -106,7 +134,7 @@ class SocialMediaClient:
         start_time = (datetime.now() - timedelta(hours=hours_back)).isoformat() + "Z"
         
         params = {
-            "query": query,
+            "query": search_query,
             "max_results": min(options.get("limit", 50), 100),
             "tweet.fields": "created_at,public_metrics,author_id,lang",
             "user.fields": "name,username,verified",
@@ -147,143 +175,184 @@ class SocialMediaClient:
                             })
                         
                         return posts
+                    elif response.status == 429:
+                        logging.warning("⚠️ Twitter rate limit hit")
+                        return []
+                    else:
+                        logging.debug(f"Twitter returned status {response.status}")
+                        return []
         except Exception as e:
             logging.debug(f"Twitter search error: {e}")
         
         return []
     
+    def _format_twitter_query(self, query: str) -> str:
+        """Format query for Twitter search"""
+        # Extract ticker if present
+        ticker_match = re.search(r'\b[A-Z]{1,5}\b', query.upper())
+        if ticker_match:
+            ticker = ticker_match.group()
+            return f"${ticker} OR {ticker} stock OR {ticker} trading"
+        
+        # For company names
+        words = query.split()[:3]  # Take first 3 words max
+        return " OR ".join(words)
+    
     async def _search_reddit(self, query: str, options: Dict) -> List[Dict]:
         """
         Search Reddit for mentions using public JSON endpoints.
-        No API key required — read-only access via reddit.com/.json URLs.
-        Reddit rate limit: ~60 req/min per IP.
         """
-        url = "https://www.reddit.com/search.json"
-
+        # Determine subreddits to search
+        subreddits = options.get("subreddits", ["wallstreetbets", "stocks", "investing", "finance"])
+        
+        all_posts = []
+        
+        for subreddit in subreddits[:2]:  # Limit to first 2 to avoid rate limits
+            posts = await self._search_reddit_subreddit(query, subreddit, options)
+            all_posts.extend(posts)
+            await asyncio.sleep(1)  # Rate limit between subreddits
+        
+        return all_posts
+    
+    async def _search_reddit_subreddit(self, query: str, subreddit: str, options: Dict) -> List[Dict]:
+        """Search a specific subreddit"""
+        url = f"https://www.reddit.com/r/{subreddit}/search.json"
+        
+        # Format query for Reddit
+        search_query = self._format_reddit_query(query)
+        
         params = {
-            "q": query,
-            "limit": options.get("limit", 50),
+            "q": search_query,
+            "limit": options.get("limit", 25),
             "sort": options.get("sort", "relevance"),
-            "t": options.get("timeframe", "day"),
-            "restrict_sr": options.get("subreddit", "") != ""
+            "t": options.get("timeframe", "week"),
+            "restrict_sr": True
         }
-
-        if "subreddit" in options:
-            url = f"https://www.reddit.com/r/{options['subreddit']}/search.json"
-
-        # Reddit requires a descriptive User-Agent — be specific to avoid throttling
-        reddit_user_agent = self.config.get(
-            "reddit_user_agent",
-            "TradingBot/1.0 (read-only market sentiment aggregator)"
-        )
+        
         headers = {
-            "User-Agent": reddit_user_agent
+            "User-Agent": "TradingBot/1.0 (market sentiment aggregator)"
         }
-
+        
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
-
+                        
                         posts = []
                         for child in data.get("data", {}).get("children", []):
                             post = child.get("data", {})
-
+                            
+                            # Skip if removed/deleted
+                            if post.get("removed_by_category") or post.get("selftext") == "[removed]":
+                                continue
+                            
                             engagement = (
                                 post.get("score", 0) * 1 +
-                                post.get("num_comments", 0) * 2
+                                post.get("num_comments", 0) * 2 +
+                                post.get("upvote_ratio", 0.5) * 10
                             )
-
+                            
                             posts.append({
                                 "id": post.get("id"),
                                 "platform": "reddit",
+                                "subreddit": subreddit,
                                 "author": post.get("author"),
                                 "title": post.get("title"),
-                                "content": post.get("selftext"),
+                                "content": post.get("selftext", "")[:500],
                                 "created_at": datetime.fromtimestamp(post.get("created_utc", 0)).isoformat(),
                                 "url": f"https://reddit.com{post.get('permalink')}",
-                                "subreddit": post.get("subreddit"),
                                 "score": post.get("score"),
                                 "num_comments": post.get("num_comments"),
+                                "upvote_ratio": post.get("upvote_ratio"),
                                 "engagement_score": engagement,
                                 "sentiment": self._analyze_sentiment(
                                     post.get("title", "") + " " + post.get("selftext", "")
                                 )
                             })
-
+                        
                         return posts
-
-                    elif response.status == 429:
-                        logging.warning("Reddit rate limit hit — backing off 10s")
-                        await asyncio.sleep(10)
-
-                    else:
-                        logging.debug(f"Reddit returned status {response.status}")
-
         except Exception as e:
-            logging.debug(f"Reddit search error: {e}")
-
+            logging.debug(f"Reddit search error for r/{subreddit}: {e}")
+        
         return []
+    
+    def _format_reddit_query(self, query: str) -> str:
+        """Format query for Reddit search"""
+        # Extract ticker if present
+        ticker_match = re.search(r'\b[A-Z]{1,5}\b', query.upper())
+        if ticker_match:
+            ticker = ticker_match.group()
+            return f"({ticker}) OR (${ticker}) OR (\"{ticker} stock\")"
+        
+        # For company names
+        return f"\"{query}\""
     
     async def _search_stocktwits(self, query: str, options: Dict) -> List[Dict]:
         """
         Search StockTwits for mentions using public symbol stream endpoints.
-        No API key required for read-only symbol streams.
-        If stocktwits_token is provided in config, it will be used for higher rate limits.
-        StockTwits rate limit: ~200 req/hour unauthenticated.
         """
-        url = f"https://api.stocktwits.com/api/2/streams/symbol/{query}.json"
-
-        params = {
-            "limit": options.get("limit", 30)
-        }
-
-        # Use token if available for higher rate limits, otherwise go public
-        headers = {}
-        if self.stocktwits_token:
-            params["access_token"] = self.stocktwits_token
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-
-                        posts = []
-                        for message in data.get("messages", []):
-                            # StockTwits sentiment is "Bullish" or "Bearish" — normalize to float
-                            raw_sentiment = message.get("entities", {}).get("sentiment", {}).get("basic")
-                            sentiment_score = (
-                                1.0 if raw_sentiment == "Bullish" else
-                                -1.0 if raw_sentiment == "Bearish" else
-                                0.0
-                            )
-
-                            posts.append({
-                                "id": message.get("id"),
-                                "platform": "stocktwits",
-                                "author": message.get("user", {}).get("username"),
-                                "content": message.get("body"),
-                                "created_at": message.get("created_at"),
-                                "url": message.get("url"),
-                                "sentiment": sentiment_score,
-                                "sentiment_label": raw_sentiment,  # Keep original label too
-                                "engagement_score": message.get("likes", {}).get("total", 0)
-                            })
-
-                        return posts
-
-                    elif response.status == 429:
-                        logging.warning("StockTwits rate limit hit — backing off 10s")
-                        await asyncio.sleep(10)
-
-                    else:
-                        logging.debug(f"StockTwits returned status {response.status}")
-
-        except Exception as e:
-            logging.debug(f"StockTwits search error: {e}")
-
+        # Extract ticker from query
+        ticker_match = re.search(r'\b[A-Z]{1,5}\b', query.upper())
+        ticker = ticker_match.group() if ticker_match else query.upper().replace(" ", "")
+        
+        # Try multiple endpoints
+        endpoints = [
+            f"https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json",
+            f"https://api.stocktwits.com/api/2/streams/symbol/{ticker.lower()}.json"
+        ]
+        
+        for url in endpoints:
+            params = {
+                "limit": options.get("limit", 30)
+            }
+            
+            headers = {}
+            if self.stocktwits_token:
+                params["access_token"] = self.stocktwits_token
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, params=params, headers=headers) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            
+                            posts = []
+                            for message in data.get("messages", []):
+                                # StockTwits sentiment
+                                raw_sentiment = message.get("entities", {}).get("sentiment", {}).get("basic")
+                                sentiment_score = (
+                                    1.0 if raw_sentiment == "Bullish" else
+                                    -1.0 if raw_sentiment == "Bearish" else
+                                    0.0
+                                )
+                                
+                                # Calculate engagement
+                                likes = message.get("likes", {}).get("total", 0)
+                                reshares = message.get("reshares", {}).get("total", 0)
+                                engagement = likes + (reshares * 2)
+                                
+                                posts.append({
+                                    "id": message.get("id"),
+                                    "platform": "stocktwits",
+                                    "author": message.get("user", {}).get("username"),
+                                    "author_followers": message.get("user", {}).get("followers", 0),
+                                    "content": message.get("body"),
+                                    "created_at": message.get("created_at"),
+                                    "url": message.get("url"),
+                                    "sentiment": sentiment_score,
+                                    "sentiment_label": raw_sentiment,
+                                    "engagement_score": engagement,
+                                    "likes": likes,
+                                    "reshares": reshares
+                                })
+                            
+                            if posts:
+                                return posts
+                            
+            except Exception as e:
+                logging.debug(f"StockTwits search error for {ticker}: {e}")
+        
         return []
     
     def _analyze_sentiment(self, text: str) -> float:
@@ -291,21 +360,28 @@ class SocialMediaClient:
         Simple sentiment analysis for social media posts
         Returns score from -1 (negative) to 1 (positive)
         """
+        if not text:
+            return 0.0
+            
         text_lower = text.lower()
         
         positive_words = {
             'bullish', 'moon', 'rocket', '🚀', 'buy', 'long', 'calls',
-            'gain', 'profit', 'green', 'up', 'ath', 'rip', 'hodl',
-            'diamond', 'hands', '💎', '🙌', 'yolo', 'undervalued'
+            'gain', 'profit', 'green', 'up', 'ath', 'hodl',
+            'diamond', 'hands', '💎', '🙌', 'yolo', 'undervalued',
+            'mooning', 'rip', 'tendies', 'squeeze', 'moonsoon',
+            'good', 'great', 'awesome', 'excellent', 'amazing'
         }
         
         negative_words = {
             'bearish', 'crash', 'dump', 'sell', 'short', 'puts',
             'loss', 'red', 'down', 'bagholder', 'rekt', 'panic',
-            'overvalued', 'scam', 'fraud', 'lawsuit', 'bankrupt'
+            'overvalued', 'scam', 'fraud', 'lawsuit', 'bankrupt',
+            'fuck', 'shit', 'bad', 'terrible', 'awful', 'worse',
+            'declining', 'plunge', 'tank', 'bloodbath'
         }
         
-        words = set(text_lower.split())
+        words = set(re.findall(r'\b\w+\b', text_lower))
         
         positive_count = sum(1 for w in words if w in positive_words)
         negative_count = sum(1 for w in words if w in negative_words)
@@ -356,8 +432,8 @@ class SocialMediaClient:
         """Check if platform is available"""
         keys = {
             "twitter": self.twitter_bearer_token,
-            "reddit": True,       # Always available — uses public JSON endpoints
-            "stocktwits": True,   # Always available — uses public symbol stream endpoints
+            "reddit": True,
+            "stocktwits": True,
         }
         return bool(keys.get(platform))
     

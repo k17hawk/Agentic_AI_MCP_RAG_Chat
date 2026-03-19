@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import aiohttp
 import asyncio
 
-from agentic_trading_system.utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as logging
 from agentic_trading_system.utils.decorators import retry
 
 class NewsAPIClient:
@@ -18,10 +18,26 @@ class NewsAPIClient:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         
-        # API keys
-        self.news_api_key = config.get("NEWS_API_KEY")
-        self.alpha_vantage_key = config.get("alpha_vantage_key")
-        self.fmp_key = config.get("fmp_key")
+        # API keys - handle both naming conventions
+        self.news_api_key = config.get("news_api_key") or config.get("NEWS_API_KEY")
+        self.alpha_vantage_key = config.get("alpha_vantage_key") or config.get("ALPHA_VANTAGE_KEY")
+        self.fmp_key = config.get("fmp_key") or config.get("FMP_KEY")
+        
+        # Debug API key status
+        if self.news_api_key:
+            logging.info(f"✅ NewsAPI key configured (starts with: {self.news_api_key[:5]}...)")
+        else:
+            logging.warning("⚠️ NewsAPI key not configured")
+            
+        if self.alpha_vantage_key:
+            logging.info(f"✅ Alpha Vantage key configured (starts with: {self.alpha_vantage_key[:5]}...)")
+        else:
+            logging.warning("⚠️ Alpha Vantage key not configured")
+            
+        if self.fmp_key:
+            logging.info(f"✅ FMP key configured (starts with: {self.fmp_key[:5]}...)")
+        else:
+            logging.warning("⚠️ FMP key not configured")
         
         # News sources
         self.sources = config.get("sources", [
@@ -58,6 +74,7 @@ class NewsAPIClient:
         await self._rate_limit()
         
         all_articles = []
+        errors = []
         
         # Try multiple sources in parallel
         tasks = []
@@ -68,13 +85,24 @@ class NewsAPIClient:
         if self.fmp_key:
             tasks.append(self._fetch_from_fmp(query, options))
         
+        # If no API keys configured, log warning
+        if not tasks:
+            logging.warning("⚠️ No news API keys configured. Please add NEWS_API_KEY, ALPHA_VANTAGE_KEY, or FMP_KEY to your .env file")
+            return {"items": [], "metadata": {"error": "No API keys configured", "total_found": 0, "unique_count": 0, "sources_used": 0}}
+        
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        for result in results:
-            if isinstance(result, list):
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                error_msg = f"Error from news source {i}: {result}"
+                logging.warning(f"⚠️ {error_msg}")
+                errors.append(error_msg)
+            elif isinstance(result, list):
                 all_articles.extend(result)
+                logging.info(f"✅ Got {len(result)} articles from source {i}")
             elif isinstance(result, dict) and "articles" in result:
                 all_articles.extend(result["articles"])
+                logging.info(f"✅ Got {len(result['articles'])} articles from source {i}")
         
         # Deduplicate
         unique_articles = self._deduplicate(all_articles)
@@ -87,7 +115,8 @@ class NewsAPIClient:
             "metadata": {
                 "total_found": len(all_articles),
                 "unique_count": len(unique_articles),
-                "sources_used": len([t for t in tasks if t is not None])
+                "sources_used": len([t for t in tasks if t is not None]),
+                "errors": errors if errors else None
             }
         }
         
@@ -100,6 +129,7 @@ class NewsAPIClient:
     async def _fetch_from_newsapi(self, query: str, options: Dict) -> List[Dict]:
         """Fetch from NewsAPI"""
         if not self.news_api_key:
+            logging.warning("⚠️ NewsAPI key missing")
             return []
         
         url = "https://newsapi.org/v2/everything"
@@ -109,8 +139,11 @@ class NewsAPIClient:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
         
+        # Clean query - remove "stock" if present as it might limit results
+        clean_query = query.replace(" stock", "").replace(" stocks", "").strip()
+        
         params = {
-            "q": query,
+            "q": clean_query,
             "from": start_date.strftime("%Y-%m-%d"),
             "to": end_date.strftime("%Y-%m-%d"),
             "language": options.get("language", "en"),
@@ -124,10 +157,15 @@ class NewsAPIClient:
             params["sources"] = ",".join(options["sources"])
         
         try:
+            logging.info(f"📡 Calling NewsAPI with query: '{clean_query}'")
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params) as response:
                     if response.status == 200:
                         data = await response.json()
+                        
+                        if data.get("status") != "ok":
+                            logging.warning(f"⚠️ NewsAPI error: {data.get('message', 'Unknown error')}")
+                            return []
                         
                         articles = []
                         for article in data.get("articles", []):
@@ -143,31 +181,43 @@ class NewsAPIClient:
                                 "api_source": "newsapi"
                             })
                         
+                        logging.info(f"✅ NewsAPI returned {len(articles)} articles")
                         return articles
+                    else:
+                        error_text = await response.text()
+                        logging.warning(f"⚠️ NewsAPI returned status {response.status}: {error_text[:200]}")
+                        return []
         except Exception as e:
-            logging.debug(f"NewsAPI error: {e}")
-        
-        return []
+            logging.warning(f"⚠️ NewsAPI exception: {e}")
+            return []
     
     async def _fetch_from_alphavantage(self, query: str, options: Dict) -> List[Dict]:
         """Fetch from Alpha Vantage News API"""
         if not self.alpha_vantage_key:
             return []
         
+        # Extract ticker from query (assumes query is a ticker symbol)
+        ticker = query.split()[0].upper() if query else ""
+        
         url = "https://www.alphavantage.co/query"
         
         params = {
             "function": "NEWS_SENTIMENT",
-            "tickers": query,
+            "tickers": ticker,
             "apikey": self.alpha_vantage_key,
             "limit": options.get("limit", 50)
         }
         
         try:
+            logging.info(f"📡 Calling Alpha Vantage for ticker: {ticker}")
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params) as response:
                     if response.status == 200:
                         data = await response.json()
+                        
+                        if "Information" in data and "demo" in data["Information"].lower():
+                            logging.warning("⚠️ Alpha Vantage: API key requires premium tier for news")
+                            return []
                         
                         articles = []
                         for item in data.get("feed", []):
@@ -184,30 +234,41 @@ class NewsAPIClient:
                                 "api_source": "alphavantage"
                             })
                         
+                        logging.info(f"✅ Alpha Vantage returned {len(articles)} articles")
                         return articles
+                    else:
+                        logging.warning(f"⚠️ Alpha Vantage returned status {response.status}")
+                        return []
         except Exception as e:
-            logging.debug(f"Alpha Vantage error: {e}")
-        
-        return []
+            logging.warning(f"⚠️ Alpha Vantage exception: {e}")
+            return []
     
     async def _fetch_from_fmp(self, query: str, options: Dict) -> List[Dict]:
         """Fetch from Financial Modeling Prep"""
         if not self.fmp_key:
             return []
         
+        # Extract ticker from query
+        ticker = query.split()[0].upper() if query else ""
+        
         url = f"https://financialmodelingprep.com/api/v3/stock_news"
         
         params = {
-            "tickers": query,
+            "tickers": ticker,
             "limit": options.get("limit", 50),
             "apikey": self.fmp_key
         }
         
         try:
+            logging.info(f"📡 Calling FMP for ticker: {ticker}")
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params) as response:
                     if response.status == 200:
                         data = await response.json()
+                        
+                        if not isinstance(data, list):
+                            logging.warning(f"⚠️ FMP returned unexpected data format")
+                            return []
                         
                         articles = []
                         for item in data:
@@ -221,11 +282,14 @@ class NewsAPIClient:
                                 "api_source": "fmp"
                             })
                         
+                        logging.info(f"✅ FMP returned {len(articles)} articles")
                         return articles
+                    else:
+                        logging.warning(f"⚠️ FMP returned status {response.status}")
+                        return []
         except Exception as e:
-            logging.debug(f"FMP error: {e}")
-        
-        return []
+            logging.warning(f"⚠️ FMP exception: {e}")
+            return []
     
     def _deduplicate(self, articles: List[Dict]) -> List[Dict]:
         """Remove duplicate articles by title"""

@@ -9,6 +9,36 @@ from pathlib import Path
 from pprint import pprint
 import argparse
 import types
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+env_path = Path(__file__).parent / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+    print(f"✅ Loaded environment variables from {env_path}")
+    
+    # Debug: Show which keys are loaded (without revealing full keys)
+    print("\n🔑 API Keys Status:")
+    tavily_key = os.getenv('TAVILY_API_KEY')
+    print(f"   TAVILY_API_KEY: {'✅ ' + tavily_key[:5] + '...' if tavily_key else '❌ Missing'}")
+    
+    news_key = os.getenv('NEWS_API_KEY')
+    print(f"   NEWS_API_KEY: {'✅ ' + news_key[:5] + '...' if news_key else '❌ Missing'}")
+    
+    alpha_key = os.getenv('ALPHA_VANTAGE_KEY')
+    print(f"   ALPHA_VANTAGE_KEY: {'✅ ' + alpha_key[:5] + '...' if alpha_key else '❌ Missing'}")
+    
+    fmp_key = os.getenv('FMP_KEY')
+    print(f"   FMP_KEY: {'✅ ' + fmp_key[:5] + '...' if fmp_key else '❌ Missing'}")
+    
+    twitter_key = os.getenv('TWITTER_BEARER_TOKEN')
+    print(f"   TWITTER_BEARER_TOKEN: {'✅ ' + twitter_key[:5] + '...' if twitter_key else '❌ Missing'}")
+    
+    fred_key = os.getenv('FRED_API_KEY')
+    print(f"   FRED_API_KEY: {'✅ ' + fred_key[:5] + '...' if fred_key else '❌ Missing'}")
+else:
+    print("⚠️  No .env file found. Please create one with your API keys.")
 
 # Add discovery folder to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -20,13 +50,25 @@ class SimpleLogger:
     def warning(self, msg): print(f"⚠️ {msg}")
     def debug(self, msg): print(f"🔍 {msg}")
 
-# FIX: Override the logger as a proper module with a logger attribute
-# so that `from utils.logger import logger as logging` works correctly
+# Override the logger module
 fake_logger_module = types.ModuleType("utils.logger")
 fake_logger_module.logger = SimpleLogger()
 sys.modules["utils.logger"] = fake_logger_module
 
-from agentic_trading_system.config.config_loader_discovery  import config
+# Import config - use the correct import path
+try:
+    from agentic_trading_system.config.config_loader_discovery import config
+    print(f"✅ Config loaded from: {config.config_path}")
+except ImportError as e:
+    print(f"❌ Failed to import config: {e}")
+    print("Attempting alternative import...")
+    try:
+        from agentic_trading_system.config.config_loader_discovery import config
+        print(f"✅ Config loaded from alternative path: {config.config_path}")
+    except ImportError as e2:
+        print(f"❌ Also failed: {e2}")
+        sys.exit(1)
+
 from agentic_trading_system.discovery.search_aggregator import SearchAggregator
 
 
@@ -59,8 +101,28 @@ class DiscoveryRunner:
         print("\n" + "=" * 60)
         print("🚀 DISCOVERY MODULE - STANDALONE MODE")
         print("=" * 60)
-        print(f"📋 Config loaded from: {config.config_path}")
         print(f"📊 Sources configured: {list(self.discovery_config['source_weights'].keys())}")
+        
+        # Show API key status from config
+        print("\n🔑 API Keys Status (from config):")
+        tavily_key = self.discovery_config['tavily_config'].get('api_key')
+        print(f"   Tavily: {'✅' if tavily_key else '❌'}")
+
+        news_key = self.discovery_config['news_config'].get('news_api_key')
+        print(f"   NewsAPI: {'✅' if news_key else '❌'}")
+
+        alpha_key = self.discovery_config['news_config'].get('alpha_vantage_key')
+        print(f"   Alpha Vantage: {'✅' if alpha_key else '❌'}")
+
+        fmp_key = self.discovery_config['news_config'].get('fmp_key')
+        print(f"   FMP: {'✅' if fmp_key else '❌'}")
+
+        twitter_key = self.discovery_config['social_config'].get('twitter_bearer_token')
+        print(f"   Twitter: {'✅' if twitter_key else '❌'}")
+
+        fred_key = self.discovery_config['macro_config'].get('fred_api_key')
+        print(f"   FRED: {'✅' if fred_key else '❌'}")
+        
         print("=" * 60)
     
     async def search(self, query, sources=None, max_results=10):
@@ -69,8 +131,6 @@ class DiscoveryRunner:
 
         options = {"max_results": max_results}
 
-        # FIX: Only add sources key if actually provided — passing None causes
-        # TypeError in _get_sources_to_query when it tries to iterate over it
         if sources:
             options["sources"] = sources
 
@@ -102,16 +162,33 @@ class DiscoveryRunner:
         print(f"\n📈 Source Statistics:")
         for source, stats in result.get("source_stats", {}).items():
             status = "✅" if stats.get("status") == "success" else "❌"
-            print(f"   {status} {source}: {stats.get('count', 0)} items")
+            count = stats.get('count', 0)
+            print(f"   {status} {source}: {count} items")
+            
+            # Show error if any
+            if stats.get("metadata", {}).get("error"):
+                print(f"      Error: {stats['metadata']['error']}")
         
         # Top items
         items = result.get("items", [])
+        # In discovery_loader.py, in _print_results method, after the top items section:
         if items:
             print(f"\n📄 Top {min(5, len(items))} items:")
             for i, item in enumerate(items[:5]):
                 print(f"\n   [{i+1}] {item.get('title', 'No title')}")
                 print(f"       Source    : {item.get('source', 'unknown')}")
                 print(f"       Relevance : {item.get('relevance_score', 0):.2f}")
+                
+                # Add this to see the actual content
+                print(f"\n       Content Preview:")
+                content = item.get('content', '')
+                if content:
+                    # Print first 500 chars
+                    for line in content.split('\n')[:10]:
+                        print(f"           {line}")
+                else:
+                    print("           No content")
+                
                 if "company_info" in item:
                     ci = item["company_info"]
                     print(f"       Company   : {ci.get('name', 'N/A')}")

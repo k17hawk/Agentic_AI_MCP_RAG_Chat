@@ -48,10 +48,16 @@ class OptionsFlowClient:
         Search for unusual options activity
         """
         options = options or {}
-        logging.info(f"📊 Options flow search for: '{query}'")
+        
+        # Extract ticker from query
+        import re
+        ticker_match = re.search(r'\b[A-Z]{1,5}\b', query.upper())
+        ticker = ticker_match.group() if ticker_match else query.upper().replace(" ", "")
+        
+        logging.info(f"📊 Options flow search for: '{ticker}'")
         
         # Check cache
-        cache_key = f"options_{query}_{hash(str(options))}"
+        cache_key = f"options_{ticker}_{hash(str(options))}"
         if cache_key in self.cache:
             cached_time, cached_result = self.cache[cache_key]
             if datetime.now().timestamp() - cached_time < self.cache_ttl:
@@ -64,13 +70,28 @@ class OptionsFlowClient:
         # Try multiple sources
         tasks = []
         if self.fmp_key:
-            tasks.append(self._fetch_from_fmp(query, options))
+            tasks.append(self._fetch_from_fmp(ticker, options))
+        
+        if not tasks:
+            return {
+                "items": [],
+                "all_flows_count": 0,
+                "unusual_count": 0,
+                "metrics": {},
+                "metadata": {
+                    "ticker": ticker,
+                    "period_hours": options.get("hours_back", 24),
+                    "error": "No data sources configured"
+                }
+            }
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         for result in results:
             if isinstance(result, list):
                 all_flows.extend(result)
+            elif isinstance(result, Exception):
+                logging.warning(f"⚠️ Options flow error: {result}")
         
         # Filter unusual activity
         unusual_flows = self._filter_unusual(all_flows)
@@ -87,14 +108,14 @@ class OptionsFlowClient:
             "unusual_count": len(unusual_flows),
             "metrics": metrics,
             "metadata": {
-                "ticker": query.upper(),
+                "ticker": ticker,
                 "period_hours": options.get("hours_back", 24)
             }
         }
         
         self.cache[cache_key] = (datetime.now().timestamp(), result)
         
-        logging.info(f"✅ Options flow: {len(unusual_flows)} unusual trades detected")
+        logging.info(f"✅ Options flow: {len(unusual_flows)} unusual trades detected for {ticker}")
         return result
     
     async def _fetch_from_fmp(self, query: str, options: Dict) -> List[Dict]:

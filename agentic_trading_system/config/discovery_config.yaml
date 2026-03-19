@@ -56,26 +56,47 @@ macro_config:
   cache_ttl_hours: 24
   indicators:
     gdp:
-      fred: "GDP"
-      worldbank: "NY.GDP.MKTP.CD"
+      fred: "GDP"  # This is correct - nominal GDP
       name: "Gross Domestic Product"
-      unit: "billions"
+      unit: "billions of dollars"
       frequency: "quarterly"
+      description: "The total value of goods and services produced in the US"
+    real_gdp:
+      fred: "GDPC1"
+      name: "Real Gross Domestic Product"
+      unit: "billions of chained 2017 dollars"
+      frequency: "quarterly"
+      description: "Inflation-adjusted GDP"
+    gdp_growth:
+      fred: "A191RL1Q225SBEA"
+      name: "Real GDP Growth Rate"
+      unit: "percent change"
+      frequency: "quarterly"
+      description: "Quarterly growth rate of real GDP"
     inflation:
       fred: "CPIAUCSL"
       name: "Consumer Price Index"
-      unit: "index"
+      unit: "index 1982-1984=100"
       frequency: "monthly"
+      description: "Measures average price change for consumer goods"
+    core_inflation:
+      fred: "CPILFESL"
+      name: "Core CPI (Excluding Food and Energy)"
+      unit: "index 1982-1984=100"
+      frequency: "monthly"
+      description: "CPI excluding volatile food and energy prices"
     unemployment:
       fred: "UNRATE"
       name: "Unemployment Rate"
       unit: "percent"
       frequency: "monthly"
+      description: "Percentage of unemployed workers in labor force"
     fed_funds:
       fred: "FEDFUNDS"
       name: "Federal Funds Rate"
       unit: "percent"
-      frequency: "daily"
+      frequency: "monthly"
+      description: "Interest rate at which banks lend to each other overnight"
 
 # Entity Extraction
 nlp_config:

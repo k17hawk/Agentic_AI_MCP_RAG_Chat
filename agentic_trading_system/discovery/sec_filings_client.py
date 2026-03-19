@@ -6,10 +6,12 @@ from datetime import datetime, timedelta
 import aiohttp
 import xml.etree.ElementTree as ET
 import re
+import json
 
-from agentic_trading_system.utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as logging
 from agentic_trading_system.utils.decorators import retry
 import asyncio
+
 class SECFilingsClient:
     """
     Fetches and parses SEC filings (10-K, 10-Q, 8-K, Form 4, etc.)
@@ -34,6 +36,9 @@ class SECFilingsClient:
         self.cache = {}
         self.cache_ttl = config.get("cache_ttl_hours", 24) * 3600
         
+        # Cache for CIK mappings
+        self.cik_cache = {}
+        
         logging.info(f"✅ SECFilingsClient initialized")
     
     @retry(max_attempts=3, delay=2.0)
@@ -42,10 +47,16 @@ class SECFilingsClient:
         Search for SEC filings by company ticker
         """
         options = options or {}
-        logging.info(f"📄 SEC filings search for: '{query}'")
+        
+        # Clean query - remove numbers and extra words
+        clean_query = re.sub(r'[^A-Za-z]', '', query).upper()
+        if not clean_query:
+            clean_query = query.upper()
+            
+        logging.info(f"📄 SEC filings search for: '{clean_query}' (original: '{query}')")
         
         # Check cache
-        cache_key = f"sec_{query}_{hash(str(options))}"
+        cache_key = f"sec_{clean_query}_{hash(str(options))}"
         if cache_key in self.cache:
             cached_time, cached_result = self.cache[cache_key]
             if datetime.now().timestamp() - cached_time < self.cache_ttl:
@@ -55,9 +66,18 @@ class SECFilingsClient:
         
         try:
             # First get CIK number for the ticker
-            cik = await self._get_cik(query)
+            cik = await self._get_cik(clean_query)
             if not cik:
-                return {"items": [], "metadata": {"error": "CIK not found"}}
+                logging.warning(f"⚠️ CIK not found for ticker: {clean_query}")
+                return {
+                    "items": [], 
+                    "metadata": {
+                        "error": f"CIK not found for {clean_query}",
+                        "ticker": clean_query
+                    }
+                }
+            
+            logging.info(f"✅ Found CIK {cik} for {clean_query}")
             
             # Get recent filings
             filings = await self._get_filings(cik, options)
@@ -73,7 +93,7 @@ class SECFilingsClient:
                 "items": processed_filings,
                 "metadata": {
                     "cik": cik,
-                    "ticker": query.upper(),
+                    "ticker": clean_query,
                     "total_found": len(filings),
                     "processed_count": len(processed_filings)
                 }
@@ -81,7 +101,7 @@ class SECFilingsClient:
             
             self.cache[cache_key] = (datetime.now().timestamp(), result)
             
-            logging.info(f"✅ SEC found {len(processed_filings)} filings")
+            logging.info(f"✅ SEC found {len(processed_filings)} filings for {clean_query}")
             return result
             
         except Exception as e:
@@ -89,9 +109,22 @@ class SECFilingsClient:
             return {"items": [], "metadata": {"error": str(e)}}
     
     async def _get_cik(self, ticker: str) -> Optional[str]:
-        """
-        Get CIK number for a ticker
-        """
+        """Get CIK number for a ticker"""
+        # Check cache first
+        if ticker in self.cik_cache:
+            return self.cik_cache[ticker]
+        
+        # Try multiple methods to get CIK
+        cik = await self._get_cik_from_tickers_json(ticker)
+        if not cik:
+            cik = await self._get_cik_from_search(ticker)
+        
+        # Cache the result (even if None)
+        self.cik_cache[ticker] = cik
+        return cik
+    
+    async def _get_cik_from_tickers_json(self, ticker: str) -> Optional[str]:
+        """Get CIK from company_tickers.json"""
         url = f"{self.base_url}/files/company_tickers.json"
         
         try:
@@ -106,14 +139,36 @@ class SECFilingsClient:
                                 cik = str(item.get("cik_str")).zfill(10)
                                 return cik
         except Exception as e:
-            logging.debug(f"Error getting CIK: {e}")
+            logging.debug(f"Error getting CIK from tickers.json: {e}")
+        
+        return None
+    
+    async def _get_cik_from_search(self, ticker: str) -> Optional[str]:
+        """Get CIK by searching EDGAR"""
+        url = f"{self.base_url}/cgi-bin/browse-edgar"
+        
+        params = {
+            "action": "getcompany",
+            "CIK": ticker,
+            "output": "atom"
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, headers={"User-Agent": self.user_agent}) as response:
+                    if response.status == 200:
+                        text = await response.text()
+                        # Parse CIK from response
+                        match = re.search(r'CIK=(\d{10})', text)
+                        if match:
+                            return match.group(1)
+        except Exception as e:
+            logging.debug(f"Error getting CIK from search: {e}")
         
         return None
     
     async def _get_filings(self, cik: str, options: Dict) -> List[Dict]:
-        """
-        Get recent filings for a CIK
-        """
+        """Get recent filings for a CIK"""
         url = f"{self.base_url}/cgi-bin/browse-edgar"
         
         params = {
@@ -132,15 +187,15 @@ class SECFilingsClient:
                     if response.status == 200:
                         text = await response.text()
                         return self._parse_filings_atom(text)
+                    else:
+                        logging.debug(f"SEC filings request failed: {response.status}")
         except Exception as e:
             logging.debug(f"Error getting filings: {e}")
         
         return []
     
     def _parse_filings_atom(self, xml_text: str) -> List[Dict]:
-        """
-        Parse filings from Atom feed
-        """
+        """Parse filings from Atom feed"""
         filings = []
         
         try:
@@ -180,9 +235,7 @@ class SECFilingsClient:
         return ""
     
     async def _process_filing(self, filing: Dict, options: Dict) -> Optional[Dict]:
-        """
-        Process a filing and extract key information
-        """
+        """Process a filing and extract key information"""
         filing_type = filing["filing_type"]
         
         # Determine filing importance
@@ -223,9 +276,7 @@ class SECFilingsClient:
         }
     
     def _get_filing_importance(self, filing_type: str) -> str:
-        """
-        Determine importance of filing type
-        """
+        """Determine importance of filing type"""
         importance_map = {
             "10-K": "high",
             "8-K": "high",
@@ -240,23 +291,21 @@ class SECFilingsClient:
         return importance_map.get(filing_type, "low")
     
     def _guess_event_type(self, href: str) -> str:
-        """
-        Guess event type from 8-K filing
-        """
+        """Guess event type from 8-K filing"""
         if "item1" in href.lower():
             return "business_changes"
         elif "item2" in href.lower():
-            "financial_info"
+            return "financial_info"
         elif "item3" in href.lower():
-            "bankruptcy"
+            return "bankruptcy"
         elif "item4" in href.lower():
-            "accounting_changes"
+            return "accounting_changes"
         elif "item5" in href.lower():
-            "corporate_governance"
+            return "corporate_governance"
         elif "item7" in href.lower():
-            "financial_statements"
+            return "financial_statements"
         elif "item8" in href.lower():
-            "other_events"
+            return "other_events"
         else:
             return "general"
     

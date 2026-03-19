@@ -52,9 +52,23 @@ class DataEnricher:
         'FINRA', 'CFTC', 'FDIC', 'FED', 'ECB',
         # Market / trading words
         'STOCK', 'STOCKS', 'SHARE', 'SHARES', 'PRICE', 'MARKET', 'MARKETS',
-        'FUND', 'FUNDS', 'BOND', 'BONDS', 'TRADE', 'CHART',
+        'FUND', 'FUNDS', 'BOND', 'BONDS', 'TRADE', 'TRADES', 'CHART', 'CHARTS',
         'NEWS', 'DATA', 'HIGH', 'LOW', 'OPEN', 'CLOSE',
         'CALL', 'CALLS', 'BULL', 'BEAR', 'LONG', 'SHORT',
+        # Price-action and analysis words that appear adjacent to stock/price/trading
+        'GAIN', 'GAINS', 'LOSS', 'RALLY', 'SURGE', 'DROP', 'FALL',
+        'RISE', 'JUMP', 'SLIDE', 'SPIKE', 'DIP', 'PEAK', 'FLAT',
+        'UP', 'DOWN', 'RANGE', 'LEVEL', 'MARK', 'BASE', 'ZONE',
+        'MOVE', 'SETUP', 'PLAY', 'IDEA', 'PICK', 'RANK', 'SCAN',
+        'ALERT', 'WATCH', 'BREAK', 'CROSS', 'STOP', 'LIMIT', 'CAP',
+        'FLOOR', 'GRAPH', 'TREND', 'INFO', 'SITE', 'PAGE', 'LIST', 'FULL',
+        # Geopolitical / news words near trading/price in headlines
+        'WAR', 'WARS', 'DEAL', 'RISK', 'FEAR', 'TALK', 'TALKS',
+        'PLAN', 'BILL', 'ACT', 'LAW', 'RULE',
+        # Time / recency words
+        'WEEK', 'MONTH', 'YEAR', 'DAILY', 'LIVE', 'PRE', 'POST', 'LATE', 'EARLY',
+        # UI / meta words
+        'REAL', 'BEST', 'TOP', 'NEW', 'OLD', 'KEY', 'MAIN', 'PLUS', 'PRO', 'API', 'APP',
         # Common web / UI tokens present in scraped Tavily content
         # (seen in logs: IDEAS, QUOTE, CCPA)
         'IDEAS', 'IDEA', 'QUOTE', 'QUOTES', 'VIEW', 'VIEWS',
@@ -63,6 +77,9 @@ class DataEnricher:
         'SHOW', 'HIDE', 'FULL', 'LIVE', 'FREE', 'MORE', 'LESS',
         # Privacy / legal boilerplate
         'CCPA', 'GDPR', 'DMCA', 'EULA', 'TOS',
+        'TOTAL', 'RETURN', 'VOLUME', 'VALUE', 'RATIO', 'SCORE', 'RATE',
+        'VS', 'VERSUS', 'TODAY', 'YESTERDAY', 'TOMORROW', 'SINCE', 'AFTER', 'BEFORE', 'DURING', 'WHILE',
+        'INDEX', 'YIELD', 'BETA', 'DELTA', 'GAMMA', 'THETA', 'SIGMA',
         # Full company names (the ticker is different)
         'APPLE', 'GOOGLE', 'META', 'TESLA', 'AMAZON', 'MICROSOFT',
         'NVIDIA', 'DISNEY', 'NETFLIX', 'INTEL', 'CISCO', 'ORACLE',

@@ -35,36 +35,61 @@ class RegexExtractor:
             'INC', 'CORP', 'LTD', 'LLC', 'LP', 'PLC', 'CO', 'GROUP', 'HOLDINGS',
             # Market / trading words
             'STOCK', 'STOCKS', 'SHARE', 'SHARES', 'PRICE', 'MARKET', 'MARKETS',
-            'FUND', 'FUNDS', 'BOND', 'BONDS', 'TRADE', 'CHART', 'NEWS', 'DATA',
+            'FUND', 'FUNDS', 'BOND', 'BONDS', 'TRADE', 'TRADES', 'CHART', 'CHARTS',
+            'NEWS', 'DATA', 'INFO', 'SITE', 'PAGE', 'LIST', 'VIEW', 'FULL',
             'HIGH', 'LOW', 'OPEN', 'CLOSE', 'CALL', 'PUT', 'CALLS', 'PUTS',
             'BUY', 'SELL', 'HOLD', 'BULL', 'BEAR', 'LONG', 'SHORT',
-            # Common web/UI words that appear in scraped Tavily content
-            'IDEAS', 'QUOTE', 'QUOTE', 'VIEW', 'ALERT', 'ALERTS', 'LOGIN',
-            'SIGN', 'TERMS', 'HELP', 'ABOUT', 'HOME', 'BACK', 'NEXT', 'PREV',
-            'READ', 'MORE', 'LESS', 'SHOW', 'HIDE', 'FULL', 'LIVE', 'FREE',
-            # Privacy / legal boilerplate common in scraped content
+            # Price-action and analysis words
+            'GAIN', 'GAINS', 'LOSS', 'RALLY', 'SURGE', 'DROP', 'FALL',
+            'RISE', 'JUMP', 'SLIDE', 'SPIKE', 'DIP', 'PEAK', 'FLAT',
+            'UP', 'DOWN', 'RANGE', 'LEVEL', 'MARK', 'BASE', 'ZONE',
+            'MOVE', 'SETUP', 'PLAY', 'IDEA', 'PICK', 'RANK', 'SCAN',
+            'ALERT', 'WATCH', 'BREAK', 'CROSS', 'STOP', 'LIMIT', 'CAP',
+            'FLOOR', 'GRAPH', 'TREND', 'INFO', 'SITE', 'PAGE', 'LIST', 'FULL',
+            # Geopolitical / news words
+            'WAR', 'WARS', 'DEAL', 'RISK', 'FEAR', 'TALK', 'TALKS',
+            'PLAN', 'BILL', 'ACT', 'LAW', 'RULE',
+            # Time / recency words
+            'WEEK', 'MONTH', 'YEAR', 'DAILY', 'LIVE', 'PRE', 'POST', 'LATE', 'EARLY',
+            # UI / meta words
+            'REAL', 'BEST', 'TOP', 'NEW', 'OLD', 'KEY', 'MAIN', 'PLUS', 'PRO', 'API', 'APP',
+            # Common web / UI tokens
+            'IDEAS', 'IDEA', 'QUOTE', 'QUOTES', 'VIEW', 'VIEWS',
+            'ALERT', 'ALERTS', 'LOGIN', 'SIGN', 'TERMS', 'HELP',
+            'ABOUT', 'HOME', 'BACK', 'NEXT', 'PREV', 'READ',
+            'SHOW', 'HIDE', 'FULL', 'LIVE', 'FREE', 'MORE', 'LESS',
+            # Privacy / legal boilerplate
             'CCPA', 'GDPR', 'DMCA', 'EULA', 'TOS',
-            # Common full company names (not tickers)
+            'TOTAL', 'RETURN', 'VOLUME', 'VALUE', 'RATIO', 'SCORE', 'RATE',
+            'VS', 'VERSUS', 'TODAY', 'YESTERDAY', 'TOMORROW', 'SINCE', 'AFTER', 'BEFORE', 'DURING', 'WHILE',
+            'INDEX', 'YIELD', 'BETA', 'DELTA', 'GAMMA', 'THETA', 'SIGMA',
+            # Full company names (the ticker is different)
             'APPLE', 'GOOGLE', 'META', 'TESLA', 'AMAZON', 'MICROSOFT',
             'NVIDIA', 'DISNEY', 'NETFLIX', 'INTEL', 'CISCO', 'ORACLE',
-            # Dates
-            'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
-            'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN',
+            # False positives from logs
+            'MASI', 'BANDS',  # These are not common tickers
         }
         
         # Compile regex patterns
         self.patterns = {
-            # Require an explicit signal: $AAPL, (AAPL), "AAPL stock/shares/…", or "stock AAPL"
-            # The old bare \b[A-Z]{1,5}\b group is removed — it grabs UI/legal words from
-            # scraped content (IDEAS, QUOTE, CCPA, etc.)
+            # Ticker patterns - require explicit signals
             "tickers": re.compile(
-                r'\$([A-Z]{1,5})\b'
-                r'|\(([A-Z]{1,5})\)'
-                r'|\b([A-Z]{1,5})\s+(?:stock|shares?|equity|price|trading)\b'
-                r'|\b(?:stock|shares?|equity|price|trading)\s+([A-Z]{1,5})\b',
+                r'\$([A-Z]{1,5})\b'                                              # $AAPL
+                r'|\(([A-Z]{1,5})\)'                                              # (AAPL)
+                r'|\b([A-Z]{2,5})\s+(?:stock|shares?|equity|price|trading)\b'    # AAPL stock
+                r'|\b(?:stock|shares?|equity|price|trading)\s+([A-Z]{2,5})\b',   # stock AAPL
                 re.IGNORECASE
             ),
-            "currencies": re.compile(r'[$€£¥](\d+(?:\.\d+)?)|\b(\d+(?:\.\d+)?)\s*(?:dollars|euros|pounds|yen)\b', re.IGNORECASE),
+            # Fixed currency pattern - captures symbols and codes correctly
+            "currencies": re.compile(
+                r'\$([0-9,]+(?:\.[0-9]+)?)'                                       # $ amounts
+                r'|€([0-9,]+(?:\.[0-9]+)?)'                                       # Euro amounts
+                r'|£([0-9,]+(?:\.[0-9]+)?)'                                       # Pound amounts
+                r'|¥([0-9,]+(?:\.[0-9]+)?)'                                       # Yen amounts
+                r'|\b(USD|EUR|GBP|JPY|CNY|AUD|CAD|CHF|HKD|SGD|NZD|KRW|INR|BRL|RUB|ZAR)\b'  # Currency codes
+                r'|\b(\d+(?:\.\d+)?)\s*(?:dollars|euros|pounds|yen)\b',           # Spelled out
+                re.IGNORECASE
+            ),
             "percentages": re.compile(r'(\d+(?:\.\d+)?)\s*%|\b(?:up|down|increase|decrease)\s+(\d+(?:\.\d+)?)\s*percent', re.IGNORECASE),
             "dates": re.compile(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b', re.IGNORECASE),
             "companies": re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:Inc|Corp|Corporation|Ltd|Limited|LLC|Co|Company|Group|Holdings|Technologies)\b', re.IGNORECASE),
@@ -111,7 +136,7 @@ class RegexExtractor:
                 for match in matches:
                     if isinstance(match, tuple):
                         for m in match:
-                            if m and m not in self.ticker_blacklist and len(m) <= 5:
+                            if m and m not in self.ticker_blacklist and len(m) <= 5 and m.isalpha():
                                 tickers.append(m.upper())
                     elif match and match not in self.ticker_blacklist:
                         tickers.append(match.upper())
@@ -120,13 +145,34 @@ class RegexExtractor:
                 results[key] = list(dict.fromkeys(tickers))
             
             elif key == "currencies":
-                # Format currency values
+                # Format currency values - extract currency codes, not amounts
                 values = []
                 for match in matches:
                     if isinstance(match, tuple):
-                        values.append(match[0] or match[1])
-                    else:
-                        values.append(match)
+                        # Check which group matched
+                        if match[0]:  # $ amount
+                            values.append("USD")
+                        elif match[1]:  # € amount
+                            values.append("EUR")
+                        elif match[2]:  # £ amount
+                            values.append("GBP")
+                        elif match[3]:  # ¥ amount
+                            values.append("JPY")
+                        elif match[4]:  # Currency code (USD, EUR, etc.)
+                            values.append(match[4].upper())
+                        elif match[5]:  # Spelled out (dollars, euros, etc.)
+                            amount = match[5]
+                            # Map spelled out to currency code
+                            text_lower = text.lower()
+                            if 'dollar' in text_lower:
+                                values.append("USD")
+                            elif 'euro' in text_lower:
+                                values.append("EUR")
+                            elif 'pound' in text_lower:
+                                values.append("GBP")
+                            elif 'yen' in text_lower:
+                                values.append("JPY")
+                # Deduplicate
                 results[key] = list(dict.fromkeys(values))
             
             elif key in ["percentages", "dates", "phone_numbers", "emails", "urls"]:
@@ -159,17 +205,13 @@ class RegexExtractor:
         """
         Quickly extract only tickers (optimized).
         Called by data_enricher.py.
-
-        Uses self.patterns["tickers"] exclusively — the single source of truth
-        for ticker patterns. Old inline patterns with inc/corp context words
-        are removed; they produced false positives like THE, INC, STOCK, QUOTE.
         """
         if not text:
             return []
 
         tickers = []
 
-        # Delegate entirely to the shared tickers pattern (already fixed/tightened)
+        # Delegate entirely to the shared tickers pattern
         matches = self.patterns["tickers"].findall(text)
         for match in matches:
             if isinstance(match, tuple):
