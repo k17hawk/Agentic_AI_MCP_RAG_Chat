@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 import aiohttp
 import asyncio
 
-from utils.logger import logger as logging
-from utils.decorators import retry
+from agentic_trading_system.utils.logger import logger as logging
+from agentic_trading_system.utils.decorators import retry
 
 class OptionsFlowClient:
     """

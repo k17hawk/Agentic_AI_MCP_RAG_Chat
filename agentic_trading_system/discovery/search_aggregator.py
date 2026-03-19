@@ -2,23 +2,23 @@
 Search Aggregator - Coordinates all data sources for discovery
 """
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from utils.logger import logger as  logging
-from agents.base_agent import BaseAgent, AgentMessage
+from agentic_trading_system.logger.logger import logger as  logging
+from agentic_trading_system.agents.base_agent import BaseAgent, AgentMessage
 
 # Import all discovery clients
-from discovery.tavily_client import TavilyClient
-from discovery.news_api_client import NewsAPIClient
-from discovery.social_media_client import SocialMediaClient
-from discovery.sec_filings_client import SECFilingsClient
-from discovery.options_flow_client import OptionsFlowClient
-from discovery.macro_data_client import MacroDataClient
-from discovery.entity_extractor.nlp_extractor import NLPExtractor
-from discovery.entity_extractor.regex_extractor import RegexExtractor
-from discovery.data_enricher import DataEnricher
+from agentic_trading_system.discovery.tavily_client import TavilyClient
+from agentic_trading_system.discovery.news_api_client import NewsAPIClient
+from agentic_trading_system.discovery.social_media_client import SocialMediaClient
+from agentic_trading_system.discovery.sec_filings_client import SECFilingsClient
+from agentic_trading_system.discovery.options_flow_client import OptionsFlowClient
+from agentic_trading_system.discovery.macro_data_client import MacroDataClient
+from agentic_trading_system.discovery.entity_extractor.nlp_extractor import NLPExtractor
+from agentic_trading_system.discovery.entity_extractor.regex_extractor import RegexExtractor
+from agentic_trading_system.discovery.data_enricher import DataEnricher
 
 class SearchAggregator(BaseAgent):
     """
@@ -71,6 +71,16 @@ class SearchAggregator(BaseAgent):
             "macro": 0.10
         })
         
+        # Map source names to their client search methods
+        self._source_clients = {
+            "tavily": self.tavily,
+            "news": self.news,
+            "social": self.social,
+            "sec": self.sec,
+            "options": self.options,
+            "macro": self.macro,
+        }
+        
         logging.info(f"✅ SearchAggregator initialized with {len(self.source_weights)} sources")
     
     async def process(self, message: AgentMessage) -> Optional[AgentMessage]:
@@ -121,22 +131,16 @@ class SearchAggregator(BaseAgent):
         
         # Determine sources to query
         sources_to_query = self._get_sources_to_query(options)
-        
-        # Query all sources in parallel
-        tasks = []
-        if "tavily" in sources_to_query:
-            tasks.append(self.tavily.search(query, options))
-        if "news" in sources_to_query:
-            tasks.append(self.news.search(query, options))
-        if "social" in sources_to_query:
-            tasks.append(self.social.search(query, options))
-        if "sec" in sources_to_query:
-            tasks.append(self.sec.search(query, options))
-        if "options" in sources_to_query:
-            tasks.append(self.options.search(query, options))
-        if "macro" in sources_to_query:
-            tasks.append(self.macro.search(query, options))
-        
+
+        # FIX: Build tasks and source names together so indices never get out of sync
+        task_pairs = [
+            (source_name, self._source_clients[source_name].search(query, options))
+            for source_name in sources_to_query
+            if source_name in self._source_clients
+        ]
+        source_names = [name for name, _ in task_pairs]
+        tasks = [task for _, task in task_pairs]
+
         # Gather results
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
@@ -144,8 +148,7 @@ class SearchAggregator(BaseAgent):
         all_items = []
         source_stats = {}
         
-        for i, source_name in enumerate(sources_to_query):
-            result = results[i]
+        for source_name, result in zip(source_names, results):
             if isinstance(result, Exception):
                 logging.warning(f"⚠️ Error from {source_name}: {result}")
                 source_stats[source_name] = {"status": "error", "count": 0}
@@ -177,25 +180,28 @@ class SearchAggregator(BaseAgent):
         
         result = {
             "query": query,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "total_items": len(all_items),
             "unique_items": len(unique_items),
             "items": enriched_items,
             "entities": entities,
             "source_stats": source_stats,
-            "sources_queried": sources_to_query
+            "sources_queried": source_names
         }
         
         # Cache result
         self.cache[cache_key] = (datetime.now(), result)
         
-        logging.info(f"✅ Discovery complete: {len(unique_items)} unique items from {len(sources_to_query)} sources")
+        logging.info(f"✅ Discovery complete: {len(unique_items)} unique items from {len(source_names)} sources")
         
         return result
     
     async def extract_entities(self, text: str) -> Dict[str, List[str]]:
         """
-        Extract entities from text using both NLP and regex
+        Extract entities from text using both NLP and regex.
+        Results from both extractors are merged here, then re-validated
+        so that anything slipping through one extractor is caught by the other's
+        validation logic before reaching the caller.
         """
         entities = {
             "tickers": [],
@@ -207,30 +213,64 @@ class SearchAggregator(BaseAgent):
             "currencies": [],
             "industries": []
         }
-        
-        # Use regex extractor for quick ticker detection
+
+        # Regex extractor — fast, high-precision patterns
         regex_entities = await self.regex_extractor.extract(text)
         for key in regex_entities:
             if key in entities:
                 entities[key].extend(regex_entities[key])
-        
-        # Use NLP extractor for deeper analysis
+
+        # NLP extractor — spaCy-based, catches names regex misses
         nlp_entities = await self.nlp_extractor.extract(text)
         for key in nlp_entities:
             if key in entities:
                 entities[key].extend(nlp_entities[key])
-        
-        # Deduplicate and sort
+
+        # Deduplicate with per-type validation as the final safety net.
+        # This catches anything that slipped through either extractor individually.
+        ticker_fp = self.nlp_extractor.TICKER_FALSE_POSITIVES
+        fragment_words = self.nlp_extractor._FRAGMENT_WORDS
+
+        def _valid_ticker(t: str) -> bool:
+            t = t.upper().strip()
+            base = t.split('.')[0]
+            if not (1 <= len(base) <= 5) or not base.isalpha():
+                return False
+            if t in ticker_fp or base in ticker_fp:
+                return False
+            if len(base) == 1:
+                return base in {'A', 'C', 'F', 'G', 'H', 'J', 'M', 'R', 'T', 'V', 'Z'}
+            return True
+
+        def _valid_company(name: str) -> bool:
+            s = name.strip()
+            if len(s) < 3 or len(s) > 60:
+                return False
+            if not s[0].isupper():
+                return False
+            words = s.split()
+            if len(words) > 5:
+                return False
+            word_set = {w.lower().rstrip('.,') for w in words}
+            if word_set & fragment_words:
+                return False
+            return True
+
         for key in entities:
-            # Remove duplicates while preserving order
-            seen = set()
+            seen: set = set()
             unique = []
             for item in entities[key]:
-                if item not in seen:
-                    seen.add(item)
-                    unique.append(item)
-            entities[key] = unique[:10]  # Limit to top 10
-        
+                item = item.strip()
+                if not item or item in seen:
+                    continue
+                if key == "tickers" and not _valid_ticker(item):
+                    continue
+                if key in ("companies", "organizations") and not _valid_company(item):
+                    continue
+                seen.add(item)
+                unique.append(item)
+            entities[key] = unique[:10]
+
         return entities
     
     def _get_sources_to_query(self, options: Dict) -> List[str]:
@@ -293,7 +333,10 @@ class SearchAggregator(BaseAgent):
         Rank items by relevance, recency, and source authority
         """
         query_terms = set(query.lower().split())
-        
+
+        # FIX: Use timezone-aware UTC now for correct comparison with API timestamps
+        now_utc = datetime.now(timezone.utc)
+
         for item in items:
             score = 0
             
@@ -326,12 +369,15 @@ class SearchAggregator(BaseAgent):
             if published:
                 try:
                     pub_date = datetime.fromisoformat(published.replace("Z", "+00:00"))
-                    age_hours = (datetime.now() - pub_date).total_seconds() / 3600
+                    # FIX: Ensure pub_date is timezone-aware before comparing
+                    if pub_date.tzinfo is None:
+                        pub_date = pub_date.replace(tzinfo=timezone.utc)
+                    age_hours = (now_utc - pub_date).total_seconds() / 3600
                     if age_hours < 24:
                         score += 5
                     elif age_hours < 72:
                         score += 2
-                except:
+                except Exception:
                     pass
             
             item["_rank_score"] = score

@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 import aiohttp
 import asyncio
 
-from utils.logger import logger as logging
-from utils.decorators import retry
+from agentic_trading_system.utils.logger import logger as logging
+from agentic_trading_system.utils.decorators import retry
 
 class SocialMediaClient:
     """
@@ -59,9 +59,9 @@ class SocialMediaClient:
         
         if "twitter" in platforms and self.twitter_bearer_token:
             tasks.append(self._search_twitter(query, options))
-        if "reddit" in platforms and self.reddit_client_id:
+        if "reddit" in platforms:  # No API key needed — uses public JSON endpoints
             tasks.append(self._search_reddit(query, options))
-        if "stocktwits" in platforms and self.stocktwits_token:
+        if "stocktwits" in platforms:  # No API key needed — uses public symbol stream endpoints
             tasks.append(self._search_stocktwits(query, options))
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -153,14 +153,13 @@ class SocialMediaClient:
         return []
     
     async def _search_reddit(self, query: str, options: Dict) -> List[Dict]:
-        """Search Reddit for mentions"""
-        if not self.reddit_client_id:
-            return []
-        
-        # Mock implementation - in production would use PRAW
-        # This is a simplified version using aiohttp
+        """
+        Search Reddit for mentions using public JSON endpoints.
+        No API key required — read-only access via reddit.com/.json URLs.
+        Reddit rate limit: ~60 req/min per IP.
+        """
         url = "https://www.reddit.com/search.json"
-        
+
         params = {
             "q": query,
             "limit": options.get("limit", 50),
@@ -168,29 +167,34 @@ class SocialMediaClient:
             "t": options.get("timeframe", "day"),
             "restrict_sr": options.get("subreddit", "") != ""
         }
-        
+
         if "subreddit" in options:
             url = f"https://www.reddit.com/r/{options['subreddit']}/search.json"
-        
+
+        # Reddit requires a descriptive User-Agent — be specific to avoid throttling
+        reddit_user_agent = self.config.get(
+            "reddit_user_agent",
+            "TradingBot/1.0 (read-only market sentiment aggregator)"
+        )
         headers = {
-            "User-Agent": "TradingBot/1.0"
+            "User-Agent": reddit_user_agent
         }
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        
+
                         posts = []
                         for child in data.get("data", {}).get("children", []):
                             post = child.get("data", {})
-                            
+
                             engagement = (
                                 post.get("score", 0) * 1 +
                                 post.get("num_comments", 0) * 2
                             )
-                            
+
                             posts.append({
                                 "id": post.get("id"),
                                 "platform": "reddit",
@@ -203,35 +207,59 @@ class SocialMediaClient:
                                 "score": post.get("score"),
                                 "num_comments": post.get("num_comments"),
                                 "engagement_score": engagement,
-                                "sentiment": self._analyze_sentiment(post.get("title", "") + " " + post.get("selftext", ""))
+                                "sentiment": self._analyze_sentiment(
+                                    post.get("title", "") + " " + post.get("selftext", "")
+                                )
                             })
-                        
+
                         return posts
+
+                    elif response.status == 429:
+                        logging.warning("Reddit rate limit hit — backing off 10s")
+                        await asyncio.sleep(10)
+
+                    else:
+                        logging.debug(f"Reddit returned status {response.status}")
+
         except Exception as e:
             logging.debug(f"Reddit search error: {e}")
-        
+
         return []
     
     async def _search_stocktwits(self, query: str, options: Dict) -> List[Dict]:
-        """Search StockTwits for mentions"""
-        if not self.stocktwits_token:
-            return []
-        
-        # StockTwits API - simplified
+        """
+        Search StockTwits for mentions using public symbol stream endpoints.
+        No API key required for read-only symbol streams.
+        If stocktwits_token is provided in config, it will be used for higher rate limits.
+        StockTwits rate limit: ~200 req/hour unauthenticated.
+        """
         url = f"https://api.stocktwits.com/api/2/streams/symbol/{query}.json"
-        
+
         params = {
             "limit": options.get("limit", 30)
         }
-        
+
+        # Use token if available for higher rate limits, otherwise go public
+        headers = {}
+        if self.stocktwits_token:
+            params["access_token"] = self.stocktwits_token
+
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as response:
+                async with session.get(url, params=params, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        
+
                         posts = []
                         for message in data.get("messages", []):
+                            # StockTwits sentiment is "Bullish" or "Bearish" — normalize to float
+                            raw_sentiment = message.get("entities", {}).get("sentiment", {}).get("basic")
+                            sentiment_score = (
+                                1.0 if raw_sentiment == "Bullish" else
+                                -1.0 if raw_sentiment == "Bearish" else
+                                0.0
+                            )
+
                             posts.append({
                                 "id": message.get("id"),
                                 "platform": "stocktwits",
@@ -239,14 +267,23 @@ class SocialMediaClient:
                                 "content": message.get("body"),
                                 "created_at": message.get("created_at"),
                                 "url": message.get("url"),
-                                "sentiment": message.get("entities", {}).get("sentiment", {}).get("basic"),
+                                "sentiment": sentiment_score,
+                                "sentiment_label": raw_sentiment,  # Keep original label too
                                 "engagement_score": message.get("likes", {}).get("total", 0)
                             })
-                        
+
                         return posts
+
+                    elif response.status == 429:
+                        logging.warning("StockTwits rate limit hit — backing off 10s")
+                        await asyncio.sleep(10)
+
+                    else:
+                        logging.debug(f"StockTwits returned status {response.status}")
+
         except Exception as e:
             logging.debug(f"StockTwits search error: {e}")
-        
+
         return []
     
     def _analyze_sentiment(self, text: str) -> float:
@@ -316,11 +353,11 @@ class SocialMediaClient:
         return unique
     
     def _has_api_key(self, platform: str) -> bool:
-        """Check if API key exists for platform"""
+        """Check if platform is available"""
         keys = {
             "twitter": self.twitter_bearer_token,
-            "reddit": self.reddit_client_id,
-            "stocktwits": self.stocktwits_token
+            "reddit": True,       # Always available — uses public JSON endpoints
+            "stocktwits": True,   # Always available — uses public symbol stream endpoints
         }
         return bool(keys.get(platform))
     

@@ -1,7 +1,4 @@
-# database.yaml
-# Configuration for database connections
 
-# PostgreSQL (Medium-term storage)
 postgresql:
   enabled: true
   default: true

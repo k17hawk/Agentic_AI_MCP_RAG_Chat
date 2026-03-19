@@ -6,6 +6,5 @@
     "python.pythonPath": "/home/lang-chain/Documents/Agentic_AI_MCP_RAG_Chat/.conda/bin/python",
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
-    "python-envs.pythonProjects": [],
     "git.ignoreLimitWarning": true
 }

@@ -7,8 +7,8 @@ import aiohttp
 import xml.etree.ElementTree as ET
 import re
 
-from utils.logger import logger as  logging
-from utils.decorators import retry
+from agentic_trading_system.utils.logger import logger as  logging
+from agentic_trading_system.utils.decorators import retry
 import asyncio
 class SECFilingsClient:
     """

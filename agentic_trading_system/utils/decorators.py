@@ -6,8 +6,8 @@ import functools
 import time
 from typing import Any, Callable, Optional, Type, Union
 from datetime import datetime, timedelta
-from utils.logger import logging
-from utils.exceptions import RateLimitError
+from agentic_trading_system.utils.logger import logging
+from agentic_trading_system.utils.exceptions import RateLimitError
 
 def retry(max_attempts: int = 3, delay: float = 1.0, 
           backoff: float = 2.0, exceptions: tuple = (Exception,)):

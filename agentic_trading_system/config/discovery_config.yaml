@@ -1,0 +1,101 @@
+# config/discovery_config.yaml
+# Minimal configuration for running discovery only
+
+# Tavily Search (web search)
+tavily_config:
+  api_key: ${TAVILY_API_KEY}
+  base_url: "https://api.tavily.com"
+  rate_limit: 10
+  cache_ttl_minutes: 30
+  max_results: 10
+  search_depth: "basic"
+
+# News APIs
+news_config:
+  news_api_key: ${NEWS_API_KEY}
+  alpha_vantage_key: ${ALPHA_VANTAGE_KEY}
+  fmp_key: ${FMP_KEY}
+  sources:
+    - reuters
+    - bloomberg
+    - cnbc
+    - wsj
+    - financial-times
+  lookback_days: 7
+  rate_limit: 30
+  cache_ttl_minutes: 15
+
+# Social Media
+social_config:
+  twitter_bearer_token: ${TWITTER_BEARER_TOKEN}
+  reddit_user_agent: "TradingBot/1.0 (read-only market sentiment aggregator)"
+  platforms: ["twitter", "reddit", "stocktwits"]
+  lookback_hours: 24
+  rate_limit: 20
+  cache_ttl_minutes: 10
+
+# SEC Filings
+sec_config:
+  user_agent: "TradingBot/1.0 (your-email@example.com)"
+  rate_limit: 5
+  cache_ttl_hours: 24
+  filing_types: ["10-K", "10-Q", "8-K", "4", "13F-HR"]
+
+# Options Flow
+options_config:
+  fmp_key: ${FMP_KEY}
+  rate_limit: 30
+  cache_ttl_minutes: 15
+  volume_threshold: 2.0
+  premium_threshold: 100000
+
+# Macro Data
+macro_config:
+  fred_api_key: ${FRED_API_KEY}
+  rate_limit: 20
+  cache_ttl_hours: 24
+  indicators:
+    gdp:
+      fred: "GDP"
+      worldbank: "NY.GDP.MKTP.CD"
+      name: "Gross Domestic Product"
+      unit: "billions"
+      frequency: "quarterly"
+    inflation:
+      fred: "CPIAUCSL"
+      name: "Consumer Price Index"
+      unit: "index"
+      frequency: "monthly"
+    unemployment:
+      fred: "UNRATE"
+      name: "Unemployment Rate"
+      unit: "percent"
+      frequency: "monthly"
+    fed_funds:
+      fred: "FEDFUNDS"
+      name: "Federal Funds Rate"
+      unit: "percent"
+      frequency: "daily"
+
+# Entity Extraction
+nlp_config:
+  spacy_model: "en_core_web_sm"
+
+regex_config:
+  # No config needed
+
+# Data Enricher
+enricher_config:
+  cache_ttl_minutes: 60
+  price_cache_ttl_minutes: 5
+
+# General settings
+cache_ttl_minutes: 15
+max_workers: 5
+source_weights:
+  tavily: 0.25
+  news: 0.20
+  social: 0.15
+  sec: 0.15
+  options: 0.15
+  macro: 0.10

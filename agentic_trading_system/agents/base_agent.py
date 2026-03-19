@@ -2,17 +2,17 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from datetime import datetime
 import asyncio
-from logger import logging 
+from agentic_trading_system.logger.logger  import logger 
 from pydantic import BaseModel, Field
 
 class AgentMessage(BaseModel):
     """Standard message format for agent communication"""
     sender: str
     receiver: str
-    message_type: str  # 'request', 'response', 'broadcast', 'alert'
+    message_type: str  
     content: Dict[str, Any]
     timestamp: datetime = Field(default_factory=datetime.now)
-    priority: int = 1  # 1-5, 5 highest
+    priority: int = 1  
     requires_response: bool = False
 
 class BaseAgent(ABC):
@@ -31,7 +31,7 @@ class BaseAgent(ABC):
         self.last_heartbeat = datetime.now()
         
         # Setup logging
-        logging.add(f"logs/{name}.log", rotation="1 day")
+        logger.info(f"Agent {name} initialized")
         
     @abstractmethod
     async def process(self, message: AgentMessage) -> Optional[AgentMessage]:
@@ -44,7 +44,7 @@ class BaseAgent(ABC):
         """Send message to another agent"""
         # In production, this would go to a message broker
         await self.message_queue.put(message)
-        logging.info(f"{self.name} sent message to {message.receiver}")
+        logger.info(f"{self.name} sent message to {message.receiver}")
     
     async def receive_message(self) -> AgentMessage:
         """Receive message from queue"""
@@ -53,7 +53,7 @@ class BaseAgent(ABC):
     async def run(self):
         """Main agent loop"""
         self.is_running = True
-        logging.info(f"Agent {self.name} started")
+        logger.info(f"Agent {self.name} started")
         
         while self.is_running:
             try:
@@ -66,14 +66,14 @@ class BaseAgent(ABC):
                 self.last_heartbeat = datetime.now()
                 
             except Exception as e:
-                logging.error(f"Error in {self.name}: {str(e)}")
+                logger.error(f"Error in {self.name}: {str(e)}")
                 self.health_status = "degraded"
                 await asyncio.sleep(5)  # Back off on errors
     
     async def stop(self):
         """Graceful shutdown"""
         self.is_running = False
-        logging.info(f"Agent {self.name} stopped")
+        logger.info(f"Agent {self.name} stopped")
     
     def health_check(self) -> Dict[str, Any]:
         """Return agent health status"""

@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 import aiohttp
 import asyncio
 
-from utils.logger import logger as  logging
-from utils.decorators import retry
+from agentic_trading_system.utils.logger import logger as  logging
+from agentic_trading_system.utils.decorators import retry
 
 class NewsAPIClient:
     """
@@ -19,7 +19,7 @@ class NewsAPIClient:
         self.config = config
         
         # API keys
-        self.news_api_key = config.get("news_api_key")
+        self.news_api_key = config.get("NEWS_API_KEY")
         self.alpha_vantage_key = config.get("alpha_vantage_key")
         self.fmp_key = config.get("fmp_key")
         

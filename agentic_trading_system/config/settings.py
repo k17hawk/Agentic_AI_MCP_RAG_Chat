@@ -100,7 +100,6 @@ class Settings:
 # Global settings instance
 settings = Settings()
 
-# Example usage function
 def get_config():
     """Get all configuration (for backward compatibility)"""
     return settings.get_all()
