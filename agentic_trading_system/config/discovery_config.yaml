@@ -28,11 +28,29 @@ news_config:
 # Social Media
 social_config:
   twitter_bearer_token: ${TWITTER_BEARER_TOKEN}
-  reddit_user_agent: "TradingBot/1.0 (read-only market sentiment aggregator)"
-  platforms: ["twitter", "reddit", "stocktwits"]
+  reddit:
+    # No API keys needed for read-only public access
+    user_agent: "TradingBot/1.0 (market sentiment aggregator for stock analysis; contact: kumardahal536@gmail.com)"
+    # Rate limiting settings - use numbers, NOT booleans!
+    limit: 100                    # Number of posts to fetch per request ✅
+    time_filter: "week"           # Time range: hour, day, week, month, year, all
+    subreddits:
+      - "wallstreetbets"
+      - "stocks"
+      - "investing"
+      - "stockmarket"
+      - "options"
+    comment_limit: 10              # Number of comments to fetch per post
+    sort: "relevance"                    # hot, new, top, rising
+  stocktwits:
+    # StockTwits API is public read-only
+    limit: 30                      # Number of messages to fetch
+  platforms: ["reddit", "stocktwits"]  # Twitter removed as it requires auth
   lookback_hours: 24
   rate_limit: 20
   cache_ttl_minutes: 10
+  # Rate limit delays (in seconds)
+  request_delay: 2.0               # Delay between requests to avoid rate limiting
 
 # SEC Filings
 sec_config:
@@ -40,14 +58,29 @@ sec_config:
   rate_limit: 5
   cache_ttl_hours: 24
   filing_types: ["10-K", "10-Q", "8-K", "4", "13F-HR"]
+  # Add CIK mapping for common tickers
+  known_ciks:
+    AAPL: "0000320193"
+    MSFT: "0000789019"
+    GOOGL: "0001652044"
+    AMZN: "0001018724"
+    TSLA: "0001318605"
+    META: "0001326801"
+    NVDA: "0001045810"
+    JPM: "0000019617"
+    BAC: "0000070858"
+    WMT: "0000104169"
 
 # Options Flow
 options_config:
   fmp_key: ${FMP_KEY}
   rate_limit: 30
   cache_ttl_minutes: 15
-  volume_threshold: 2.0
-  premium_threshold: 100000
+  volume_threshold: 2.0            # 2x average volume is unusual
+  premium_threshold: 100000         # $100k minimum premium
+  # Alternative free source (if FMP fails)
+  use_alternative: true
+  alternative_source: "marketbeat"  # Free options data source
 
 # Macro Data
 macro_config:
@@ -56,7 +89,7 @@ macro_config:
   cache_ttl_hours: 24
   indicators:
     gdp:
-      fred: "GDP"  # This is correct - nominal GDP
+      fred: "GDP"
       name: "Gross Domestic Product"
       unit: "billions of dollars"
       frequency: "quarterly"
@@ -101,14 +134,39 @@ macro_config:
 # Entity Extraction
 nlp_config:
   spacy_model: "en_core_web_sm"
+  # Entity types to extract
+  entity_types:
+    - "PERSON"
+    - "ORG"
+    - "GPE"  # Geo-political entities (countries, cities)
+    - "MONEY"
+    - "DATE"
+    - "PERCENT"
 
 regex_config:
-  # No config needed
+  # Stock ticker patterns (for fallback when NLP fails)
+  ticker_pattern: '\b[A-Z]{1,5}\b'
+  # Exclude common words that look like tickers
+  exclude_tickers:
+    - "A"
+    - "I"
+    - "CEO"
+    - "CFO"
+    - "CTO"
+    - "IPO"
+    - "ETF"
+    - "GDP"
+    - "CPI"
+    - "NYSE"
+    - "NASDAQ"
 
 # Data Enricher
 enricher_config:
   cache_ttl_minutes: 60
   price_cache_ttl_minutes: 5
+  # Yahoo Finance as free price source
+  price_source: "yahoo"
+  fundamentals_source: "sec"  # Use SEC for fundamentals
 
 # General settings
 cache_ttl_minutes: 15
@@ -120,3 +178,15 @@ source_weights:
   sec: 0.15
   options: 0.15
   macro: 0.10
+
+# Rate limit monitoring
+rate_limit_monitoring:
+  enabled: true
+  alert_threshold: 0.8  # Alert when 80% of rate limit used
+  cooldown_minutes: 60   # Cooldown period after hitting limits
+
+# Logging
+logging:
+  level: "INFO"
+  log_queries: true
+  log_rate_limits: true

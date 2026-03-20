@@ -50,15 +50,48 @@ class SimpleLogger:
     def warning(self, msg): print(f"⚠️ {msg}")
     def debug(self, msg): print(f"🔍 {msg}")
 
-# Override the logger module
-fake_logger_module = types.ModuleType("utils.logger")
-fake_logger_module.logger = SimpleLogger()
-sys.modules["utils.logger"] = fake_logger_module
+# Override the logger module under every import path used across the codebase.
+# discovery clients:    from agentic_trading_system.utils.logger import logger
+# search_aggregator:    from agentic_trading_system.logger.logger import logger
+# (the bare "utils.logger" key was the original bug — it never matched either path)
+_simple_logger = SimpleLogger()
+
+for _module_path in (
+    "agentic_trading_system.utils.logger",
+    "agentic_trading_system.logger.logger",
+    "utils.logger",           # keep for safety
+):
+    _mod = types.ModuleType(_module_path)
+    _mod.logger = _simple_logger
+    sys.modules[_module_path] = _mod
 
 # Import config - use the correct import path
 try:
     from agentic_trading_system.config.config_loader_discovery import config
     print(f"✅ Config loaded from: {config.config_path}")
+    
+    # 🚨 ADD THIS DEBUG CODE
+    print("\n🔍 DEBUG: Social config content:")
+    social_config = config.get('social_config', {})
+    print(f"   Raw social config: {social_config}")
+    
+    if 'reddit' in social_config:
+        print(f"   Reddit limit type: {type(social_config['reddit'].get('limit'))}")
+        print(f"   Reddit limit value: {social_config['reddit'].get('limit')}")
+    else:
+        print("   ⚠️ No 'reddit' key in social_config!")
+        
+        # Temporary fix: Add it manually
+        print("   🔧 Adding reddit config manually...")
+        # This modifies the config in memory
+        config._config['social_config']['reddit'] = {
+            'limit': 100,
+            'time_filter': 'week',
+            'user_agent': 'TradingBot/1.0 (market sentiment aggregator)',
+            'subreddits': ['wallstreetbets', 'stocks', 'investing'],
+            'comment_limit': 10,
+            'sort': 'hot'
+        }
 except ImportError as e:
     print(f"❌ Failed to import config: {e}")
     print("Attempting alternative import...")
