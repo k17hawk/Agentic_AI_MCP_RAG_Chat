@@ -2,8 +2,8 @@
 Exchange Validator - Validates stock exchange
 """
 from typing import Dict, List, Optional, Any
-from utils.logger import logger as  logging
 
+from agentic_trading_system.utils.logger import logger as logging
 class ExchangeValidator:
     """
     Validates that a stock trades on allowed exchanges

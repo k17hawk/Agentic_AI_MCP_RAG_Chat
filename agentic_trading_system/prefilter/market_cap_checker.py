@@ -2,8 +2,7 @@
 Market Cap Checker - Validates market capitalization
 """
 from typing import Dict, List, Optional, Any
-from utils.logger import logger as logging
-
+from agentic_trading_system.utils.logger import logger as logging
 class MarketCapChecker:
     """
     Validates that stock has sufficient market capitalization

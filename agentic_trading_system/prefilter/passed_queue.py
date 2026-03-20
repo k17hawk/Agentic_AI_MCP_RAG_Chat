@@ -5,9 +5,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import asyncio
 from collections import deque
-
-from utils.logger import logger as logging
-
+from agentic_trading_system.utils.logger import logger as logging
 class PassedQueue:
     """
     Manages queue of stocks that passed all quality gates

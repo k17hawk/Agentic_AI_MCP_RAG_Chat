@@ -2,8 +2,7 @@
 Price Range Checker - Validates stock price range
 """
 from typing import Dict, List, Optional, Any
-from utils.logger import logger as  logging
-
+from agentic_trading_system.utils.logger import logger as logging
 class PriceRangeChecker:
     """
     Validates that stock price is within acceptable range

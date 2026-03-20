@@ -6,17 +6,18 @@ from datetime import datetime
 import asyncio
 import yfinance as yf
 
-from utils.logger import logger as logging
+
 from agents.base_agent import BaseAgent, AgentMessage
 
 # Import all validators
-from prefilter.exchange_validator import ExchangeValidator
-from prefilter.price_range_checker import PriceRangeChecker
-from prefilter.volume_checker import VolumeChecker
-from prefilter.market_cap_checker import MarketCapChecker
-from prefilter.data_quality_checker import DataQualityChecker
-from prefilter.rejected_logger import RejectedLogger
-from prefilter.passed_queue import PassedQueue
+from agentic_trading_system.prefilter.exchange_validator import ExchangeValidator
+from agentic_trading_system.prefilter.price_range_checker import PriceRangeChecker
+from agentic_trading_system.prefilter.volume_checker import VolumeChecker
+from agentic_trading_system.prefilter.market_cap_checker import MarketCapChecker
+from agentic_trading_system.prefilter.data_quality_checker import DataQualityChecker
+from agentic_trading_system.prefilter.rejected_logger import RejectedLogger
+from agentic_trading_system.prefilter.passed_queue import PassedQueue
+from agentic_trading_system.utils.logger import logger as logging
 
 class QualityGates(BaseAgent):
     """

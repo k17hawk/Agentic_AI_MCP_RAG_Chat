@@ -8,7 +8,7 @@ import os
 from collections import defaultdict
 import pandas as pd
 import asyncio
-from utils.logger import  logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class RejectedLogger:
     """
