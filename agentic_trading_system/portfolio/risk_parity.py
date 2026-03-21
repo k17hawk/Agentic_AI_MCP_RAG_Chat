@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class RiskParity:
     """

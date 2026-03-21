@@ -7,7 +7,7 @@ import pandas as pd
 from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
 from scipy.spatial.distance import squareform
 import scipy.cluster.hierarchy as sch
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class HierarchicalRiskParity:
     """

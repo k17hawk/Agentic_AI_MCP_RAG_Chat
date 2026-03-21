@@ -10,13 +10,13 @@ from utils.logger import logger as logging
 from agents.base_agent import BaseAgent, AgentMessage
 
 # Import all portfolio components
-from portfolio.efficient_frontier import EfficientFrontier
-from portfolio.black_litterman import BlackLitterman
-from portfolio.risk_parity import RiskParity
-from portfolio.hierarchical_risk_parity import HierarchicalRiskParity
-from portfolio.allocation_engine import AllocationEngine
-from portfolio.rebalancing_signals import RebalancingSignals
-from portfolio.recommendation_generator import RecommendationGenerator
+from agentic_trading_system.portfolio.efficient_frontier import EfficientFrontier
+from agentic_trading_system.portfolio.black_litterman import BlackLitterman
+from agentic_trading_system.portfolio.risk_parity import RiskParity
+from agentic_trading_system.portfolio.hierarchical_risk_parity import HierarchicalRiskParity
+from agentic_trading_system.portfolio.allocation_engine import AllocationEngine
+from agentic_trading_system.portfolio.rebalancing_signals import RebalancingSignals
+from agentic_trading_system.portfolio.recommendation_generator import RecommendationGenerator
 
 class PortfolioOptimizer(BaseAgent):
     """
