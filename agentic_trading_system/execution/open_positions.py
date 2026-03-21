@@ -4,7 +4,7 @@ Open Positions - Tracks current open positions
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import yfinance as yf
-from utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as  logging
 
 class OpenPositions:
     """
