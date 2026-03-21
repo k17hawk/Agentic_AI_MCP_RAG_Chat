@@ -3,7 +3,7 @@ Fills Manager - Tracks and manages order fills
 """
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class FillsManager:
     """
