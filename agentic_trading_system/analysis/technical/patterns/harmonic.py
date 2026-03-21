@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any, Tuple
 import pandas as pd
 import numpy as np
 from scipy.signal import argrelextrema
-from utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as  logging
 
 class HarmonicPatterns:
     """

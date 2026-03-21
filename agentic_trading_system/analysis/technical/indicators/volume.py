@@ -4,7 +4,7 @@ Volume Indicators - OBV, MFI, VWAP, etc.
 from typing import Dict, List, Optional, Any
 import pandas as pd
 import numpy as np
-from utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as  logging
 
 class VolumeIndicators:
     """

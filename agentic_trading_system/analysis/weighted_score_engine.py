@@ -7,8 +7,8 @@ from datetime import datetime
 import numpy as np
 from enum import Enum
 
-from utils.logger import logger as logging
-from agents.base_agent import BaseAgent, AgentMessage
+from agentic_trading_system.utils.logger import logger as logging
+from agentic_trading_system.agents.base_agent import BaseAgent, AgentMessage
 
 class ScoreCategory(Enum):
     """Categories of scores"""

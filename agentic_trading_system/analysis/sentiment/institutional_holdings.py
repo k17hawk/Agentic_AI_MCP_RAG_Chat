@@ -4,7 +4,7 @@ Institutional Holdings - Analyzes institutional investor activity
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import aiohttp
-from utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as  logging
 
 class InstitutionalHoldings:
     """

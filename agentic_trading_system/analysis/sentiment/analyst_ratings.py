@@ -4,7 +4,7 @@ Analyst Ratings - Analyzes and aggregates analyst recommendations
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import aiohttp
-from utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as  logging
 import numpy as np
 class AnalystRatings:
     """

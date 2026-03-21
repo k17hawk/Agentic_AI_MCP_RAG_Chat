@@ -7,16 +7,16 @@ from datetime import datetime
 import json
 import yfinance as yf
 
-from utils.logger import logger as logging
-from agents.base_agent import BaseAgent, AgentMessage
+from agentic_trading_system.utils.logger import logger as logging
+from agentic_trading_system.agents.base_agent import BaseAgent, AgentMessage
 
 # Import analysis components
-from analysis.multi_timeframe_aggregator import MultiTimeframeAggregator, Timeframe
-from analysis.weighted_score_engine import WeightedScoreEngine
-from analysis.regime_detector import RegimeDetector
-from analysis.technical.technical_analyzer import TechnicalAnalyzer
-from analysis.fundamental.fundamental_analyzer import FundamentalAnalyzer
-from analysis.sentiment.sentiment_analyzer import SentimentAnalyzer
+from agentic_trading_system.analysis.multi_timeframe_aggregator import MultiTimeframeAggregator, Timeframe
+from agentic_trading_system.analysis.weighted_score_engine import WeightedScoreEngine
+from agentic_trading_system.analysis.regime_detector import RegimeDetector
+from agentic_trading_system.analysis.technical.technical_analyzer import TechnicalAnalyzer
+from agentic_trading_system.analysis.fundamental.fundamental_analyzer import FundamentalAnalyzer
+from agentic_trading_system.analysis.sentiment.sentiment_analyzer import SentimentAnalyzer
 
 class AnalysisOrchestrator(BaseAgent):
     """

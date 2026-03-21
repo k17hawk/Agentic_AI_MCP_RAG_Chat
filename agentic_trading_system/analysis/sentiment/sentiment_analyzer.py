@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 import asyncio
 import numpy as np
 
-from utils.logger import logging
-from agents.base_agent import BaseAgent, AgentMessage
+from agentic_trading_system.utils.logger import logging
+from agentic_trading_system.agents.base_agent import BaseAgent, AgentMessage
 
 # Import sentiment components
 from analysis.sentiment.news_sentiment import NewsSentiment

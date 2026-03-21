@@ -7,8 +7,8 @@ import numpy as np
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 
-from utils.logger import logger as logging
-from agents.base_agent import BaseAgent, AgentMessage
+from agentic_trading_system.utils.logger import logger as logging
+from agentic_trading_system.agents.base_agent import BaseAgent, AgentMessage
 
 class TechnicalAnalyzer(BaseAgent):
     """

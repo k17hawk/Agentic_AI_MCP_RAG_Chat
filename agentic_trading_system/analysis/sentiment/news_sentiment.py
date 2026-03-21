@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import asyncio
 import aiohttp
 import numpy as np
-from utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as  logging
 
 class NewsSentiment:
     """

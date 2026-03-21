@@ -4,7 +4,7 @@ Technical Scorer - Scores and ranks technical analysis results
 from typing import Dict, List, Optional, Any
 import numpy as np
 from datetime import datetime
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class TechnicalScorer:
     """

@@ -4,7 +4,7 @@ Sentiment Scorer - Final scoring and normalization for sentiment analysis
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import numpy as np
-from utils.logger import logging
+from agentic_trading_system.utils.logger import logging
 
 class SentimentScorer:
     """

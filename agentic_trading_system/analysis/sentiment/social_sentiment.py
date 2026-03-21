@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import asyncio
 import re
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 import numpy as np
 class SocialSentiment:
     """

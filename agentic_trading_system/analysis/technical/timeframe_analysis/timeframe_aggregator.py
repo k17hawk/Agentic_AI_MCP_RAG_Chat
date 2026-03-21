@@ -8,11 +8,11 @@ import pandas as pd
 import numpy as np
 from enum import Enum
 
-from utils.logger import logging
-from analysis.technical.timeframe_analysis.intraday import IntradayAnalyzer
-from analysis.technical.timeframe_analysis.daily import DailyAnalyzer
+from agentic_trading_system.utils.logger import logging
+from agentic_trading_system.analysis.technical.timeframe_analysis.intraday import IntradayAnalyzer
+from agentic_trading_system.analysis.technical.timeframe_analysis.daily import DailyAnalyzer
 from analysis.technical.timeframe_analysis.weekly import WeeklyAnalyzer
-from analysis.technical.timeframe_analysis.monthly import MonthlyAnalyzer
+from agentic_trading_system.analysis.technical.timeframe_analysis.monthly import MonthlyAnalyzer
 
 class Timeframe(Enum):
     """Available timeframes for analysis"""
