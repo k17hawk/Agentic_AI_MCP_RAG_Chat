@@ -6,17 +6,11 @@ from datetime import datetime, timedelta
 import json
 import os
 from collections import defaultdict
-from agentic_trading_system.utils.logger import logger as  logging
-
+from agentic_trading_system.utils.logger import logger as logging
+import numpy as np
 class DecisionTracker:
     """
     Decision Tracker - Tracks human decisions for learning and analysis
-    
-    Tracks:
-    - Approval rates
-    - Response times
-    - Decision patterns
-    - Performance by decision type
     """
     
     def __init__(self, config: Dict[str, Any]):
@@ -28,7 +22,13 @@ class DecisionTracker:
         
         # In-memory storage
         self.decisions = []
-        self.stats = defaultdict(lambda: defaultdict(int))
+        self.stats = {
+            "total_decisions": defaultdict(int),
+            "by_symbol": defaultdict(lambda: defaultdict(int)),   # symbol -> decision -> count
+            "response_times": defaultdict(list),
+            "wins": defaultdict(int),
+            "losses": defaultdict(int)
+        }
         
         # Load existing data
         self._load_decisions()
@@ -191,14 +191,35 @@ class DecisionTracker:
             "approval_rate": self.get_approval_rate(days)["approval_rate"]
         }
     
+    def get_stats(self) -> Dict[str, Any]:
+        """Return current statistics (converted to regular dicts for JSON)"""
+        # Convert defaultdicts to plain dicts
+        return {
+            "total_decisions": dict(self.stats["total_decisions"]),
+            "by_symbol": {sym: dict(decisions) for sym, decisions in self.stats["by_symbol"].items()},
+            "response_times": {k: v for k, v in self.stats["response_times"].items()},
+            "wins": dict(self.stats["wins"]),
+            "losses": dict(self.stats["losses"]),
+            "total_entries": len(self.decisions),
+            "approval_rate": self.get_approval_rate()["approval_rate"]
+        }
+    
     def _save_decisions(self):
         """Save decisions to file"""
         try:
             os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+            # Convert defaultdicts to regular dicts for JSON serialization
+            stats_plain = {
+                "total_decisions": dict(self.stats["total_decisions"]),
+                "by_symbol": {sym: dict(decisions) for sym, decisions in self.stats["by_symbol"].items()},
+                "response_times": {k: v for k, v in self.stats["response_times"].items()},
+                "wins": dict(self.stats["wins"]),
+                "losses": dict(self.stats["losses"])
+            }
             with open(self.log_file, 'w') as f:
                 json.dump({
                     "decisions": self.decisions,
-                    "stats": dict(self.stats),
+                    "stats": stats_plain,
                     "updated_at": datetime.now().isoformat()
                 }, f, indent=2)
         except Exception as e:
@@ -212,8 +233,14 @@ class DecisionTracker:
                     data = json.load(f)
                     self.decisions = data.get("decisions", [])
                     
-                    # Rebuild stats
-                    self.stats = defaultdict(lambda: defaultdict(int))
+                    # Rebuild stats using the same structure
+                    self.stats = {
+                        "total_decisions": defaultdict(int),
+                        "by_symbol": defaultdict(lambda: defaultdict(int)),
+                        "response_times": defaultdict(list),
+                        "wins": defaultdict(int),
+                        "losses": defaultdict(int)
+                    }
                     for decision in self.decisions:
                         self.stats["total_decisions"][decision["decision"]] += 1
                         self.stats["by_symbol"][decision["symbol"]][decision["decision"]] += 1

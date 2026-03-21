@@ -22,7 +22,7 @@ class TimeoutManager:
         
         # Timeout configuration
         self.default_timeout = config.get("default_timeout_seconds", 300)  # 5 minutes
-        self.reminder_interval = config.get("reminder_interval_seconds", 60)  # 1 minute
+        self.reminder_interval = config.get("reminder_interval_seconds", 600)  # 1 minute
         self.max_reminders = config.get("max_reminders", 3)
         self.escalation_delay = config.get("escalation_delay_seconds", 600)  # 10 minutes
         

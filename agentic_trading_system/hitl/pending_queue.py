@@ -11,12 +11,6 @@ from agentic_trading_system.utils.logger import logger as logging
 class PendingQueue:
     """
     Pending Queue - Manages items waiting for human approval
-    
-    Features:
-    - FIFO queue with priority
-    - Per-item expiry
-    - Duplicate prevention
-    - Status tracking
     """
     
     def __init__(self, config: Dict[str, Any]):
@@ -175,9 +169,24 @@ class PendingQueue:
         
         self.stats["total_cancelled"] += 1
         
-        # Remove from queue if still there
-        for queue in [self.high_priority, self.normal_priority, self.low_priority]:
-            queue[:] = [i for i in queue if i["id"] != item_id]
+        # Remove from queues (create new deques without the item)
+        # Preserve maxlen
+        high_maxlen = self.high_priority.maxlen
+        normal_maxlen = self.normal_priority.maxlen
+        low_maxlen = self.low_priority.maxlen
+        
+        self.high_priority = deque(
+            (q for q in self.high_priority if q["id"] != item_id),
+            maxlen=high_maxlen
+        )
+        self.normal_priority = deque(
+            (q for q in self.normal_priority if q["id"] != item_id),
+            maxlen=normal_maxlen
+        )
+        self.low_priority = deque(
+            (q for q in self.low_priority if q["id"] != item_id),
+            maxlen=low_maxlen
+        )
         
         logging.info(f"❌ Cancelled: {item.get('symbol')} - {reason}")
         
