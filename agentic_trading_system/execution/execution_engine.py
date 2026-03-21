@@ -5,18 +5,18 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 import asyncio
 
-from utils.logger import logger as logging
-from agents.base_agent import BaseAgent, AgentMessage
+from agentic_trading_system.utils.logger import logger as logging
+from agentic_trading_system.agents.base_agent import BaseAgent, AgentMessage
 
 # Import execution components
-from execution.order_manager import OrderManager
-from execution.broker_connectors.alpaca_client import AlpacaClient
-from execution.broker_connectors.ibkr_client import IBKRClient
-from execution.broker_connectors.paper_trading import PaperTrading
-from execution.broker_connectors.mock_broker import MockBroker
-from execution.routing.smart_order_routing import SmartOrderRouting
-from execution.fills_manager import FillsManager
-from execution.open_positions import OpenPositions
+from agentic_trading_system.execution.order_manager import OrderManager
+from agentic_trading_system.execution.broker_connectors.alpaca_client import AlpacaClient
+from agentic_trading_system.execution.broker_connectors.ibkr_client import IBKRClient
+from agentic_trading_system.execution.broker_connectors.paper_trading import PaperTrading
+from agentic_trading_system.execution.broker_connectors.mock_broker import MockBroker
+from agentic_trading_system.execution.routing.smart_order_routing import SmartOrderRouting
+from agentic_trading_system.execution.fills_manager import FillsManager
+from agentic_trading_system.execution.open_positions import OpenPositions
 from execution.settlement import Settlement
 
 class ExecutionEngine(BaseAgent):
