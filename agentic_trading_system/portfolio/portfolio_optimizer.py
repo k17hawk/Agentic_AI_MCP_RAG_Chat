@@ -6,8 +6,8 @@ from datetime import datetime
 import pandas as pd
 import asyncio
 
-from utils.logger import logger as logging
-from agents.base_agent import BaseAgent, AgentMessage
+from agentic_trading_system.utils.logger import logger as logging
+from agentic_trading_system.agents.base_agent import BaseAgent, AgentMessage
 
 # Import all portfolio components
 from agentic_trading_system.portfolio.efficient_frontier import EfficientFrontier
@@ -210,25 +210,27 @@ class PortfolioOptimizer(BaseAgent):
         """
         # Check if rebalancing needed
         rebalance_signal = await self.check_rebalance()
-        
+
         # Generate allocation plan if needed
         allocation_plan = None
         if rebalance_signal["needs_rebalance"]:
-            # Create allocation plan
+            # Use cached price data if available; AllocationEngine now handles
+            # an empty DataFrame gracefully by falling back to stored values.
+            price_data = self._get_price_data()
             allocation_plan = self.allocation_engine.allocate(
                 self.portfolio,
                 self.portfolio["target_allocation"],
-                self._get_price_data(),  # Would need price data
+                price_data,
                 self.portfolio["cash"]
             )
-        
+
         # Generate recommendations
         recommendations = self.recommendation_generator.generate_recommendations(
             allocation_plan or {},
             rebalance_signal,
             market_outlook
         )
-        
+
         return recommendations
     
     def _calculate_current_weights(self) -> Dict[str, float]:
@@ -256,10 +258,12 @@ class PortfolioOptimizer(BaseAgent):
         return {symbol: 1e9 for symbol in symbols}
     
     def _get_price_data(self) -> pd.DataFrame:
-        """Get current price data"""
-        # This would fetch from data source
-        # Placeholder
-        return pd.DataFrame()
+        """
+        Return the most recent cached price DataFrame.
+        Populated via `update_portfolio` with action='update_prices'.
+        Returns an empty DataFrame when no cache exists — callers must handle this.
+        """
+        return getattr(self, "_price_cache", pd.DataFrame())
     
     async def _update_portfolio(self, updates: Dict[str, Any]):
         """Update portfolio state"""
@@ -283,6 +287,9 @@ class PortfolioOptimizer(BaseAgent):
                 if position["symbol"] in prices:
                     position["current_price"] = prices[position["symbol"]]
                     position["value"] = position["shares"] * prices[position["symbol"]]
+            # Keep a single-row price DataFrame so generate_recommendations can use it
+            if prices:
+                self._price_cache = pd.DataFrame([prices])
         
         # Recalculate total value
         total_invested = sum(p.get("value", 0) for p in self.portfolio["positions"])

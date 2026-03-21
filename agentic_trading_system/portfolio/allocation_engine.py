@@ -23,10 +23,10 @@ class AllocationEngine:
         self.config = config
         
         # Import optimization models
-        from portfolio.efficient_frontier import EfficientFrontier
-        from portfolio.black_litterman import BlackLitterman
-        from portfolio.risk_parity import RiskParity
-        from portfolio.hierarchical_risk_parity import HierarchicalRiskParity
+        from agentic_trading_system.portfolio.efficient_frontier import EfficientFrontier
+        from agentic_trading_system.portfolio.black_litterman import BlackLitterman
+        from agentic_trading_system.portfolio.risk_parity import RiskParity
+        from agentic_trading_system.portfolio.hierarchical_risk_parity import HierarchicalRiskParity
         
         self.ef = EfficientFrontier(config.get("ef_config", {}))
         self.bl = BlackLitterman(config.get("bl_config", {}))
@@ -59,7 +59,15 @@ class AllocationEngine:
         
         # Get current positions
         current_positions = current_portfolio.get("positions", [])
-        current_weights = self._calculate_current_weights(current_positions, prices)
+
+        # If no price data is available fall back to value-based weights so the
+        # rest of the allocation logic still works (tax optimisation is skipped
+        # for positions that lack cost-basis fields anyway).
+        if prices is None or prices.empty:
+            current_weights = self._calculate_value_weights(current_positions,
+                                                             current_portfolio.get("total_value", 0))
+        else:
+            current_weights = self._calculate_current_weights(current_positions, prices)
         
         # Calculate trades needed
         trades = self._calculate_trades(current_weights, target_allocation, current_portfolio["total_value"])
@@ -120,6 +128,19 @@ class AllocationEngine:
         
         return result
     
+    def _calculate_value_weights(self, positions: List[Dict],
+                                 total_value: float) -> Dict[str, float]:
+        """Calculate current weights from stored position values (no price feed needed)."""
+        weights = {}
+        if total_value <= 0:
+            return weights
+        for position in positions:
+            symbol = position.get("symbol")
+            value = position.get("value", 0)
+            if symbol:
+                weights[symbol] = value / total_value
+        return weights
+
     def _calculate_current_weights(self, positions: List[Dict], 
                                   prices: pd.DataFrame) -> Dict[str, float]:
         """Calculate current portfolio weights"""
@@ -197,43 +218,55 @@ class AllocationEngine:
         Optimize trades for tax efficiency
         - Harvest losses
         - Prefer long-term gains
+        
+        Positions that lack entry_time / entry_price / current_price are skipped
+        gracefully — tax optimisation is best-effort, not a hard requirement.
         """
-        # Group positions by holding period
+        # Group positions by holding period (only those with full cost-basis data)
         long_term_positions = {}
         short_term_positions = {}
-        
+
         for position in positions:
-            symbol = position["symbol"]
-            entry_time = datetime.fromisoformat(position["entry_time"])
+            symbol = position.get("symbol")
+            entry_time_str = position.get("entry_time")
+            entry_price = position.get("entry_price")
+            current_price = position.get("current_price")
+
+            # Skip positions that are missing the fields we need
+            if not symbol or not entry_time_str or entry_price is None or current_price is None:
+                continue
+
+            try:
+                entry_time = datetime.fromisoformat(entry_time_str)
+            except (ValueError, TypeError):
+                continue
+
             holding_days = (datetime.now() - entry_time).days
-            
             if holding_days > 365:
                 long_term_positions[symbol] = position
             else:
                 short_term_positions[symbol] = position
-        
+
         # Prioritize selling short-term losers first
         optimized_trades = []
         for trade in trades:
             if trade["action"] == "SELL":
                 symbol = trade["symbol"]
-                
-                # Check if we have this position
+
                 if symbol in short_term_positions:
-                    # Check if it's a loser
                     position = short_term_positions[symbol]
                     if position["current_price"] < position["entry_price"]:
                         trade["tax_efficient"] = True
                         trade["tax_rate"] = self.tax_rates["short_term"]
-                
+
                 elif symbol in long_term_positions:
                     position = long_term_positions[symbol]
                     if position["current_price"] < position["entry_price"]:
                         trade["tax_efficient"] = True
                         trade["tax_rate"] = self.tax_rates["long_term"]
-            
+
             optimized_trades.append(trade)
-        
+
         return optimized_trades
     
     def _calculate_net_cash(self, trades: List[Dict]) -> float:

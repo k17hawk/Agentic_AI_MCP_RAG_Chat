@@ -9,6 +9,7 @@ from scipy.spatial.distance import squareform
 import scipy.cluster.hierarchy as sch
 from agentic_trading_system.utils.logger import logger as logging
 
+
 class HierarchicalRiskParity:
     """
     Hierarchical Risk Parity (HRP) - Uses clustering to build diversified portfolios
@@ -33,48 +34,47 @@ class HierarchicalRiskParity:
         
         logging.info(f"✅ HierarchicalRiskParity initialized")
     
+    
     def optimize(self, returns: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Perform hierarchical risk parity optimization
-        """
-        # Calculate correlation and covariance
         correlation = returns.corr()
         covariance = returns.cov() * 252
         
-        # Calculate distance matrix
+        n_assets = len(returns.columns)
+        assets = list(returns.columns)
+        
         distance_matrix = self._correlation_to_distance(correlation)
         
-        # Perform hierarchical clustering
-        clusters = self._build_clusters(distance_matrix)
+        # Pass cluster_registry back from _build_clusters
+        root_cluster, cluster_registry = self._build_clusters(distance_matrix, assets)
         
-        # Calculate weights using recursive bisection
-        weights = self._recursive_bisection(clusters, covariance)
+        # Pass registry into recursive bisection
+        weights_dict = self._recursive_bisection(root_cluster, cluster_registry, covariance, assets)
         
-        # Apply weight constraints
-        weights = self._apply_constraints(weights)
+        weights_array = np.array([weights_dict.get(asset, 0) for asset in assets])
+        weights_array = self._apply_constraints(weights_array)
+        weights = {asset: float(weights_array[i]) for i, asset in enumerate(assets)}
         
-        # Calculate portfolio metrics
         expected_returns = returns.mean() * 252
-        weights_array = np.array([weights[a] for a in returns.columns])
+        weights_array = np.array([weights[a] for a in assets])
         portfolio_return = np.sum(expected_returns * weights_array)
         portfolio_volatility = np.sqrt(np.dot(weights_array.T, np.dot(covariance.values, weights_array)))
         
-        # Calculate risk contributions
         risk_contrib = self._calculate_risk_contributions(weights_array, covariance.values)
         total_risk = np.sum(risk_contrib)
         risk_contrib_pct = risk_contrib / total_risk if total_risk > 0 else risk_contrib
         
         return {
             "weights": weights,
-            "risk_contributions": dict(zip(returns.columns, risk_contrib)),
-            "risk_contributions_pct": dict(zip(returns.columns, risk_contrib_pct)),
+            "risk_contributions": dict(zip(assets, risk_contrib)),
+            "risk_contributions_pct": dict(zip(assets, risk_contrib_pct)),
             "expected_return": float(portfolio_return),
             "volatility": float(portfolio_volatility),
             "sharpe_ratio": float(portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0),
-            "clusters": clusters,
             "method": "hierarchical_risk_parity",
-            "assets": list(returns.columns)
+            "assets": assets
         }
+
+
     
     def _correlation_to_distance(self, correlation: pd.DataFrame) -> np.ndarray:
         """
@@ -84,86 +84,88 @@ class HierarchicalRiskParity:
         distance = np.sqrt(0.5 * (1 - correlation.values))
         return distance
     
-    def _build_clusters(self, distance_matrix: np.ndarray) -> Dict:
-        """
-        Build hierarchical clusters from distance matrix
-        """
-        # Condense distance matrix
+    def _build_clusters(self, distance_matrix: np.ndarray, assets: List[str]) -> Tuple[Dict, Dict]:
+        """Returns (root_cluster, cluster_registry)"""
+        n_assets = len(assets)
         condensed = squareform(distance_matrix)
-        
-        # Perform hierarchical clustering
         linkage_matrix = linkage(condensed, method=self.linkage_method)
-        
-        # Build cluster tree
-        clusters = self._build_cluster_tree(linkage_matrix)
-        
-        return clusters
+        root_cluster, registry = self._build_cluster_tree(linkage_matrix, n_assets, assets)
+        return root_cluster, registry
     
-    def _build_cluster_tree(self, linkage_matrix: np.ndarray) -> Dict:
+    def _build_cluster_tree(self, linkage_matrix: np.ndarray, n_assets: int, assets: List[str]) -> Tuple[Dict, Dict]:
         """
-        Build recursive cluster tree from linkage matrix
+        Build recursive cluster tree. Returns (root_cluster, full registry).
         """
-        n_assets = linkage_matrix.shape[0] + 1
-        clusters = {}
+        registry = {}
         
-        # Initialize leaf nodes
+        # Leaf nodes
         for i in range(n_assets):
-            clusters[i] = {
-                'name': f'asset_{i}',
+            registry[i] = {
                 'is_leaf': True,
+                'assets': [assets[i]],
+                'size': 1,
                 'children': []
             }
         
-        # Build tree from bottom up
-        cluster_id = n_assets
-        for i, link in enumerate(linkage_matrix):
-            left = int(link[0])
-            right = int(link[1])
+        current_id = n_assets
+        for link in linkage_matrix:
+            left_id = int(link[0])
+            right_id = int(link[1])
             distance = link[2]
             
-            clusters[cluster_id] = {
-                'name': f'cluster_{cluster_id}',
+            left_cluster = registry[left_id]
+            right_cluster = registry[right_id]
+            
+            registry[current_id] = {
                 'is_leaf': False,
-                'children': [left, right],
-                'distance': distance
+                'assets': left_cluster['assets'] + right_cluster['assets'],
+                'children': [left_id, right_id],   # store IDs, not objects
+                'distance': float(distance),
+                'size': left_cluster['size'] + right_cluster['size']
             }
-            cluster_id += 1
+            current_id += 1
         
-        # Root is the last cluster
-        root_id = cluster_id - 1
-        
-        return clusters[root_id]
+        root_id = current_id - 1
+        return registry[root_id], registry
     
-    def _recursive_bisection(self, cluster: Dict, covariance: pd.DataFrame) -> Dict[str, float]:
+    def _create_cluster_from_list(self, clusters: Dict, node_id: int) -> Dict:
+        """Create a cluster from a node ID that might not exist yet"""
+        if node_id in clusters:
+            return clusters[node_id]
+        
+        # If node is less than n_assets, it's a leaf
+        n_assets = len([c for c in clusters.keys() if isinstance(clusters[c], dict) and clusters[c].get('is_leaf')])
+        
+        if node_id < n_assets:
+            # This shouldn't happen if we initialized all leaves
+            return {'is_leaf': True, 'assets': [f"asset_{node_id}"], 'size': 1, 'children': []}
+        
+        return {'is_leaf': False, 'assets': [], 'children': [], 'size': 0}
+    
+    def _recursive_bisection(self, cluster: Dict, registry: Dict, covariance: pd.DataFrame, assets: List[str]) -> Dict[str, float]:
         """
-        Recursive bisection algorithm to allocate weights
+        Recursive bisection using the cluster registry to look up children.
         """
         if cluster['is_leaf']:
-            # Leaf node - single asset
-            asset_idx = int(cluster['name'].split('_')[1])
-            return {f"asset_{asset_idx}": 1.0}
+            return {cluster['assets'][0]: 1.0}
         
-        # Get child clusters
-        left_cluster = self._get_cluster_by_id(cluster['children'][0])
-        right_cluster = self._get_cluster_by_id(cluster['children'][1])
+        left_id, right_id = cluster['children']
+        left_cluster = registry[left_id]
+        right_cluster = registry[right_id]
         
-        # Calculate variance of each subcluster
         left_variance = self._cluster_variance(left_cluster, covariance)
         right_variance = self._cluster_variance(right_cluster, covariance)
         
-        # Allocate weights inversely to variance
         total_variance = left_variance + right_variance
         if total_variance > 0:
-            left_weight = right_variance / total_variance  # Inverse
+            left_weight = right_variance / total_variance
             right_weight = left_variance / total_variance
         else:
             left_weight = right_weight = 0.5
         
-        # Recursively allocate within clusters
-        left_weights = self._recursive_bisection(left_cluster, covariance)
-        right_weights = self._recursive_bisection(right_cluster, covariance)
+        left_weights = self._recursive_bisection(left_cluster, registry, covariance, assets)
+        right_weights = self._recursive_bisection(right_cluster, registry, covariance, assets)
         
-        # Combine weights
         weights = {}
         for asset, w in left_weights.items():
             weights[asset] = w * left_weight
@@ -171,38 +173,42 @@ class HierarchicalRiskParity:
             weights[asset] = w * right_weight
         
         return weights
+
+    
+    def _get_cluster_from_assets(self, cluster_id, covariance: pd.DataFrame, assets: List[str]) -> Dict:
+        """
+        Create a cluster from an ID
+        """
+        # For simplicity, treat any non-leaf as containing all assets not in the other branch
+        # This is a simplified approach - in production, we'd track clusters properly
+        return {
+            'is_leaf': False,
+            'assets': assets,  # Placeholder - would be actual assets in the cluster
+            'children': [],
+            'size': len(assets)
+        }
     
     def _cluster_variance(self, cluster: Dict, covariance: pd.DataFrame) -> float:
         """
-        Calculate variance of a cluster
+        Calculate cluster variance using the actual assets in the cluster.
+        For a leaf, returns that asset's variance.
+        For a non-leaf, returns the equal-weighted portfolio variance of all assets in the cluster.
         """
-        if cluster['is_leaf']:
-            asset_idx = int(cluster['name'].split('_')[1])
-            return covariance.iloc[asset_idx, asset_idx]
+        cluster_assets = [a for a in cluster['assets'] if a in covariance.columns]
         
-        # Recursively calculate cluster variance
-        left_cluster = self._get_cluster_by_id(cluster['children'][0])
-        right_cluster = self._get_cluster_by_id(cluster['children'][1])
+        if not cluster_assets:
+            return 1e-6
         
-        left_variance = self._cluster_variance(left_cluster, covariance)
-        right_variance = self._cluster_variance(right_cluster, covariance)
+        if len(cluster_assets) == 1:
+            return float(covariance.loc[cluster_assets[0], cluster_assets[0]])
         
-        # Simple approximation: average of child variances
-        return (left_variance + right_variance) / 2
+        n = len(cluster_assets)
+        w = np.ones(n) / n
+        cov_sub = covariance.loc[cluster_assets, cluster_assets].values
+        return float(w @ cov_sub @ w)
     
-    def _get_cluster_by_id(self, cluster_id: int) -> Dict:
-        """
-        Get cluster by ID (placeholder - would need proper cluster storage)
-        """
-        # This is a simplified version - in production, maintain a cluster registry
-        return {
-            'is_leaf': cluster_id < 10,  # Assume first 10 are assets
-            'name': f'asset_{cluster_id}' if cluster_id < 10 else f'cluster_{cluster_id}',
-            'children': []
-        }
     
-    def _calculate_risk_contributions(self, weights: np.ndarray, 
-                                     covariance: np.ndarray) -> np.ndarray:
+    def _calculate_risk_contributions(self, weights: np.ndarray, covariance: np.ndarray) -> np.ndarray:
         """
         Calculate risk contribution of each asset
         """
@@ -216,17 +222,16 @@ class HierarchicalRiskParity:
         
         return risk_contrib
     
-    def _apply_constraints(self, weights: Dict[str, float]) -> Dict[str, float]:
+    def _apply_constraints(self, weights: np.ndarray) -> np.ndarray:
         """
         Apply weight constraints
         """
         # Clip weights to [min, max]
-        for asset in weights:
-            weights[asset] = max(self.min_weight, min(self.max_weight, weights[asset]))
+        weights = np.clip(weights, self.min_weight, self.max_weight)
         
         # Renormalize
-        total = sum(weights.values())
+        total = np.sum(weights)
         if total > 0:
-            weights = {k: v / total for k, v in weights.items()}
+            weights = weights / total
         
         return weights
