@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Complete Sequential Test: Discovery → Prefilter
+Fixed Complete Sequential Test: Discovery → Prefilter
 Tests the full pipeline from data discovery to quality gating
 """
 import asyncio
@@ -18,15 +18,14 @@ from agentic_trading_system.prefilter.price_range_checker import PriceRangeCheck
 from agentic_trading_system.prefilter.volume_checker import VolumeChecker
 from agentic_trading_system.prefilter.market_cap_checker import MarketCapChecker
 from agentic_trading_system.prefilter.data_quality_checker import DataQualityChecker
-from agentic_trading_system.prefilter.quality_gates import QualityGates
+from agentic_trading_system.utils.logger import logging
 
-from agentic_trading_system.utils.logger import logger as logging
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
 class DiscoveryToPrefilterPipeline:
     """
-    Sequential test: Discovery → Prefilter
+    Fixed Sequential test: Discovery → Prefilter
     """
     
     def __init__(self):
@@ -98,35 +97,36 @@ class DiscoveryToPrefilterPipeline:
     
     async def run_prefilter(self, symbols: list):
         """
-        Step 2: Run prefilter on discovered symbols
+        Step 2: Run prefilter on discovered symbols using individual validators directly
+        (FIX: Don't use QualityGates wrapper, use validators directly)
         """
         print("\n" + "="*70)
         print("🔍 STEP 2: PREFILTER PHASE")
         print("="*70)
         
-        # Create QualityGates with your 60-day requirement
-        config = {
-            "exchange_config": {
-                "allowed_exchanges": ["NMS", "NYQ", "NGM", "ASE"],
-                "blocked_exchanges": ["OTC", "PINK"]
-            },
-            "price_config": {
-                "min_price": 1.0,
-                "max_price": 10000.0
-            },
-            "volume_config": {
-                "min_volume": 100000,
-                "min_avg_volume": 50000
-            },
-            "market_cap_config": {
-                "min_market_cap": 50000000  # $50M
-            },
-            "data_quality_config": {
-                "min_history_days": 60  # YOUR 60-DAY REQUIREMENT!
-            }
-        }
+        # Initialize validators directly (FIXED)
+        exchange_validator = ExchangeValidator({
+            "allowed_exchanges": ["NYSE", "NASDAQ", "AMEX", "BATS", "IEX"],
+            "blocked_exchanges": ["OTC", "PINK", "GREY", "YHD"]
+        })
         
-        quality_gates = QualityGates("QualityGates", config)
+        price_checker = PriceRangeChecker({
+            "min_price": 1.0,
+            "max_price": 10000.0
+        })
+        
+        volume_checker = VolumeChecker({
+            "min_volume": 100000,
+            "min_avg_volume": 50000
+        })
+        
+        market_cap_checker = MarketCapChecker({
+            "min_market_cap": 50000000  # $50M
+        })
+        
+        data_quality_checker = DataQualityChecker({
+            "min_history_days": 60  # YOUR 60-DAY REQUIREMENT!
+        })
         
         # Process each symbol
         for discovery_result in self.discovery_results:
@@ -153,35 +153,47 @@ class DiscoveryToPrefilterPipeline:
                     "sector": info.get("sector", "Unknown"),
                     "industry": info.get("industry", "Unknown"),
                     "long_name": info.get("longName", symbol),
-                    "data_days": len(hist)
+                    "data_days": len(hist),
+                    # Additional fields
+                    "longName": info.get("longName", symbol),
+                    "shortName": info.get("shortName", symbol),
+                    "regularMarketPrice": info.get("regularMarketPrice", 0),
+                    "regularMarketVolume": info.get("regularMarketVolume", 0)
                 }
                 
                 # Run all quality checks
                 print(f"\n   🔍 Running individual checks for {symbol}:")
                 
                 # 1. Exchange Check
-                exchange_result = await quality_gates.exchange_validator.validate(symbol, enriched_info)
+                exchange_result = await exchange_validator.validate(symbol, enriched_info)
                 print(f"      Exchange: {enriched_info['exchange']} → {'✅ PASS' if exchange_result['passed'] else '❌ FAIL'}")
+                if not exchange_result['passed']:
+                    print(f"         Reason: {exchange_result.get('reason', 'Unknown')}")
                 
                 # 2. Price Check
-                price_result = await quality_gates.price_checker.validate(symbol, enriched_info)
+                price_result = await price_checker.validate(symbol, enriched_info)
                 print(f"      Price: ${enriched_info['current_price']:.2f} → {'✅ PASS' if price_result['passed'] else '❌ FAIL'}")
+                if not price_result['passed']:
+                    print(f"         Reason: {price_result.get('reason', 'Unknown')}")
                 
                 # 3. Volume Check
-                volume_result = await quality_gates.volume_checker.validate(symbol, enriched_info)
+                volume_result = await volume_checker.validate(symbol, enriched_info)
                 print(f"      Volume: {enriched_info['volume']:,} → {'✅ PASS' if volume_result['passed'] else '❌ FAIL'}")
+                if not volume_result['passed']:
+                    print(f"         Reason: {volume_result.get('reason', 'Unknown')}")
                 
                 # 4. Market Cap Check
-                mcap_result = await quality_gates.market_cap_checker.validate(symbol, enriched_info)
+                mcap_result = await market_cap_checker.validate(symbol, enriched_info)
                 print(f"      Market Cap: ${enriched_info['market_cap']:,.0f} → {'✅ PASS' if mcap_result['passed'] else '❌ FAIL'}")
+                if not mcap_result['passed']:
+                    print(f"         Reason: {mcap_result.get('reason', 'Unknown')}")
                 
                 # 5. Data Quality Check (YOUR 60-DAY!)
-                quality_result = await quality_gates.data_quality_checker.validate(symbol, enriched_info)
+                quality_result = await data_quality_checker.validate(symbol, enriched_info)
                 days = enriched_info['data_days']
-                if days >= 60:
-                    print(f"      Data Quality: {days} days → ✅ PASS (60-DAY REQUIREMENT MET!)")
-                else:
-                    print(f"      Data Quality: {days} days → ❌ FAIL (Need {60-days} more days)")
+                print(f"      Data Quality: {days} days → {'✅ PASS' if quality_result['passed'] else '❌ FAIL'} (60-DAY REQUIREMENT: {'✅' if days >= 60 else '❌'})")
+                if not quality_result['passed']:
+                    print(f"         Issues: {quality_result.get('issues', [])}")
                 
                 # Overall pass/fail
                 all_passed = all([
@@ -217,6 +229,8 @@ class DiscoveryToPrefilterPipeline:
                 
             except Exception as e:
                 print(f"   ❌ Error processing {symbol}: {e}")
+                import traceback
+                traceback.print_exc()
                 self.stats["rejected_tickers"].append({
                     "symbol": symbol,
                     "passed": False,
@@ -294,7 +308,7 @@ async def run_sequential_test():
     # Initialize pipeline
     pipeline = DiscoveryToPrefilterPipeline()
     
-    # Test symbols (mix of good and potentially bad)
+    # Test symbols
     test_symbols = ["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA", "META"]
     
     # STEP 1: Run Discovery
@@ -324,7 +338,7 @@ async def run_sequential_test():
         "rejected_tickers": [
             {
                 "symbol": t["symbol"],
-                "reasons": [r for r in t.get('details', {}).values() if not r.get('passed', True)]
+                "reasons": [r.get('reason', r) for r in t.get('details', {}).values() if not r.get('passed', True)]
             }
             for t in pipeline.stats["rejected_tickers"]
         ]

@@ -7,7 +7,7 @@ import asyncio
 import yfinance as yf
 
 
-from agents.base_agent import BaseAgent, AgentMessage
+from agentic_trading_system.agents.base_agent import BaseAgent, AgentMessage
 
 # Import all validators
 from agentic_trading_system.prefilter.exchange_validator import ExchangeValidator

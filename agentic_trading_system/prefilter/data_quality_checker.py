@@ -95,6 +95,8 @@ class DataQualityChecker:
             "has_sufficient_history": hist_data["days_available"] >= self.min_history_days
         }
     
+    # prefilter/data_quality_checker.py - Updated _check_historical_data method
+
     async def _check_historical_data(self, ticker: str) -> Dict[str, Any]:
         """
         Check historical data availability
@@ -103,7 +105,7 @@ class DataQualityChecker:
         
         try:
             stock = yf.Ticker(ticker)
-            hist = stock.history(period="3mo")
+            hist = stock.history(period="6mo")  # Get 6 months for 60-day requirement
             
             if hist.empty:
                 issues.append("No historical data available")
@@ -117,15 +119,16 @@ class DataQualityChecker:
             days_available = len(hist)
             data_points = hist['Close'].count()
             
-            # Check minimum history
+            # Check minimum history - YOUR 60-DAY REQUIREMENT
             if days_available < self.min_history_days:
                 issues.append(f"Insufficient history: {days_available} days < {self.min_history_days}")
             
-            # Check for gaps
+            # Check for gaps - but account for weekends and holidays
             date_diff = hist.index.to_series().diff().dt.days
-            gaps = date_diff[date_diff > 3].count()  # Gaps of more than 3 days
-            if gaps > 0:
-                issues.append(f"Data gaps detected: {gaps} gaps")
+            # Only count gaps > 7 days as significant (accounts for weekends + holidays)
+            significant_gaps = date_diff[date_diff > 7].count()
+            if significant_gaps > 0:
+                issues.append(f"Data gaps detected: {significant_gaps} significant gaps")
             
             # Check for constant values (possible stale data)
             if hist['Close'].std() < 0.01:
@@ -136,18 +139,20 @@ class DataQualityChecker:
                 "issues": issues,
                 "days_available": days_available,
                 "data_points": int(data_points),
-                "gaps_detected": int(gaps),
+                "gaps_detected": int(significant_gaps),
                 "start_date": hist.index[0].strftime("%Y-%m-%d") if not hist.empty else None,
                 "end_date": hist.index[-1].strftime("%Y-%m-%d") if not hist.empty else None
             }
             
         except Exception as e:
+            logging.error(f"Error checking historical data for {ticker}: {e}")
             return {
                 "has_issues": True,
                 "issues": [f"Error checking historical data: {str(e)}"],
                 "days_available": 0,
                 "data_points": 0
             }
+    
     
     async def _check_data_freshness(self, ticker: str) -> Dict[str, Any]:
         """
