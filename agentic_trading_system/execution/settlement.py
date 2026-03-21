@@ -3,7 +3,7 @@ Settlement - Handles trade settlement and cash management
 """
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class Settlement:
     """
