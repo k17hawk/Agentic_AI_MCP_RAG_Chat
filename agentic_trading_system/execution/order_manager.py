@@ -5,13 +5,13 @@ from typing import Dict, List, Optional, Any, Set
 from datetime import datetime, timedelta
 import uuid
 import asyncio
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 # Import order types
-from execution.order_types.market_order import MarketOrder
-from execution.order_types.limit_order import LimitOrder
-from execution.order_types.stop_order import StopOrder
-from execution.order_types.trailing_stop_order import TrailingStopOrder
+from agentic_trading_system.execution.order_types.market_order import MarketOrder
+from agentic_trading_system.execution.order_types.limit_order import LimitOrder
+from agentic_trading_system.execution.order_types.stop_order import StopOrder
+from agentic_trading_system.execution.order_types.trailing_stop_order import TrailingStopOrder
 
 class OrderManager:
     """
