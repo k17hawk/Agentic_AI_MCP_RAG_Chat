@@ -2,7 +2,7 @@
 Market Regime Risk - Adjusts risk parameters based on market regime
 """
 from typing import Dict, Any, Optional
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class MarketRegimeRisk:
     """

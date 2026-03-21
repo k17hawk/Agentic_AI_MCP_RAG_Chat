@@ -3,7 +3,7 @@ Time Stop - Exit position after specified time period
 """
 from typing import Dict, Any
 from datetime import datetime, timedelta
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class TimeStop:
     """

@@ -2,8 +2,8 @@
 Half Kelly - Conservative version of Kelly Criterion
 """
 from typing import Dict, Any, Optional
-from risk.position_sizing.kelly_criterion import KellyCriterion
-from utils.logger import logger as logging
+from agentic_trading_system.risk.position_sizing.kelly_criterion import KellyCriterion
+from agentic_trading_system.utils.logger import logger as logging
 
 class HalfKelly(KellyCriterion):
     """

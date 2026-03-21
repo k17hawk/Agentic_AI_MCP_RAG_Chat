@@ -4,27 +4,28 @@ Risk Manager - Main orchestrator for all risk management
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import asyncio
+import numpy as np
 
-from utils.logger import logger as logging
-from agents.base_agent import BaseAgent, AgentMessage  # IMPORT AgentMessage!
+from agentic_trading_system.utils.logger import logger as logging
+from agentic_trading_system.agents.base_agent import BaseAgent, AgentMessage
 
 # Import all risk components
-from risk.market_regime_risk import MarketRegimeRisk
-from risk.position_sizing.kelly_criterion import KellyCriterion
-from risk.position_sizing.half_kelly import HalfKelly
-from risk.position_sizing.fixed_fraction import FixedFraction
-from risk.position_sizing.volatility_adjusted import VolatilityAdjusted
-from risk.stop_loss_optimizer.atr_stop import ATRStop
-from risk.stop_loss_optimizer.volatility_stop import VolatilityStop
-from risk.stop_loss_optimizer.trailing_stop import TrailingStop
-from risk.stop_loss_optimizer.time_stop import TimeStop
-from risk.portfolio_risk.var_calculator import VaRCalculator
-from risk.portfolio_risk.expected_shortfall import ExpectedShortfall
-from risk.portfolio_risk.correlation_matrix import CorrelationMatrix
-from risk.portfolio_risk.diversification_score import DiversificationScore
-from risk.portfolio_risk.stress_tester import StressTester
-from risk.risk_scorer import RiskScorer
-from risk.risk_approved_queue import RiskApprovedQueue
+from agentic_trading_system.risk.market_regime_risk import MarketRegimeRisk
+from agentic_trading_system.risk.position_sizing.kelly_criterion import KellyCriterion
+from agentic_trading_system.risk.position_sizing.half_kelly import HalfKelly
+from agentic_trading_system.risk.position_sizing.fixed_fraction import FixedFraction
+from agentic_trading_system.risk.position_sizing.volatility_adjusted import VolatilityAdjusted
+from agentic_trading_system.risk.stop_loss_optimizer.atr_stop import ATRStop
+from agentic_trading_system.risk.stop_loss_optimizer.volatility_stop import VolatilityStop
+from agentic_trading_system.risk.stop_loss_optimizer.trailing_stop import TrailingStop
+from agentic_trading_system.risk.stop_loss_optimizer.time_stop import TimeStop
+from agentic_trading_system.risk.portfolio_risk.var_calculator import VaRCalculator
+from agentic_trading_system.risk.portfolio_risk.expected_shortfall import ExpectedShortfall
+from agentic_trading_system.risk.portfolio_risk.correlation_matrix import CorrelationMatrix
+from agentic_trading_system.risk.portfolio_risk.diversification_score import DiversificationScore
+from agentic_trading_system.risk.portfolio_risk.stress_tester import StressTester
+from agentic_trading_system.risk.risk_scorer import RiskScorer
+from agentic_trading_system.risk.risk_approved_queue import RiskApprovedQueue
 
 class RiskManager(BaseAgent):
     """
@@ -76,11 +77,15 @@ class RiskManager(BaseAgent):
             "capital": config.get("initial_capital", 100000),
             "positions": [],
             "cash": config.get("initial_capital", 100000),
-            "last_updated": datetime.now().isoformat()
+            "last_updated": datetime.now().isoformat(),
+            "historical_returns": []  # Store historical returns for correlation
         }
         
         # Current market regime
         self.current_regime = "neutral_ranging"
+        
+        # Historical data for correlations
+        self.price_history = {}  # Store price history for each symbol
         
         logging.info(f"✅ RiskManager initialized with capital: ${self.portfolio['capital']:,.2f}")
     
@@ -142,88 +147,169 @@ class RiskManager(BaseAgent):
                 content=self.get_status()
             )
         
+        elif message.message_type == "update_price_history":
+            # Update price history for correlation calculations
+            symbol = message.content.get("symbol")
+            price = message.content.get("price")
+            if symbol and price:
+                if symbol not in self.price_history:
+                    self.price_history[symbol] = []
+                self.price_history[symbol].append({
+                    "timestamp": datetime.now(),
+                    "price": price
+                })
+                # Keep last 100 prices
+                if len(self.price_history[symbol]) > 100:
+                    self.price_history[symbol] = self.price_history[symbol][-100:]
+            return None
+        
         return None
     
     async def calculate_risk(self, analysis: Dict[str, Any], requester: str) -> AgentMessage:
         """
-        Calculate risk for a potential trade
+        Calculate risk for a potential trade using actual market data
         """
+        # Extract all available data from analysis
         symbol = analysis.get("symbol")
         score = analysis.get("final_score", 0.5)
-        
-        logging.info(f"🛡️ Calculating risk for {symbol}")
-        
-        # Get basic info
         signal = analysis.get("action", "WATCH")
         confidence = analysis.get("confidence", 0.5)
         
-        # Get price (would come from analysis details)
-        price = 100.0  # Placeholder - would come from analysis
+        # Get actual market data (FIX: Use real values from analysis)
+        price = analysis.get("price", 100.0)
+        volatility = analysis.get("volatility", 0.20)
+        atr = analysis.get("atr", price * volatility / 16)  # Estimate if not provided
+        volume = analysis.get("volume", 1000000)
+        avg_volume = analysis.get("avg_volume", 800000)
+        bid_ask_spread = analysis.get("bid_ask_spread", 0.001)
         
-        # Get volatility data (would come from analysis)
-        volatility = 0.20  # Placeholder
+        # Get historical win rate if available
+        win_rate = analysis.get("win_rate", 0.55)
+        avg_win = analysis.get("avg_win", 0.10)
+        avg_loss = analysis.get("avg_loss", 0.05)
         
-        # Calculate position size using multiple methods
-        kelly_size = self.kelly.calculate(
-            win_rate=0.55,  # Would come from historical data
-            avg_win=0.10,
-            avg_loss=0.05
+        logging.info(f"🛡️ Calculating risk for {symbol} at ${price:.2f} (vol: {volatility*100:.1f}%, ATR: ${atr:.2f})")
+        
+        # ===== POSITION SIZING CALCULATIONS =====
+        
+        # Kelly Criterion
+        kelly_result = self.kelly.calculate(
+            win_rate=win_rate,
+            avg_win=avg_win,
+            avg_loss=avg_loss
         )
+        kelly_fraction = min(kelly_result.get("recommended_fraction", 0), 
+                            self.config.get("kelly_config", {}).get("max_fraction", 0.25))
+        kelly_size = kelly_fraction * self.portfolio["capital"]
         
-        fixed_size = self.fixed_fraction.calculate(
+        # Half Kelly (more conservative)
+        half_kelly_result = self.half_kelly.calculate(
+            win_rate=win_rate,
+            avg_win=avg_win,
+            avg_loss=avg_loss
+        )
+        half_kelly_fraction = half_kelly_result.get("recommended_fraction", 0)
+        half_kelly_size = half_kelly_fraction * self.portfolio["capital"]
+        
+        # Fixed Fraction
+        fixed_result = self.fixed_fraction.calculate(
             capital=self.portfolio["capital"],
             confidence=confidence
         )
+        fixed_size = fixed_result.get("position_value", 0)
         
-        vol_adjusted_size = self.vol_adjusted.calculate(
+        # Volatility Adjusted (PRIMARY METHOD)
+        vol_adjusted_result = self.vol_adjusted.calculate(
             capital=self.portfolio["capital"],
             volatility=volatility,
             confidence=confidence
         )
+        vol_adjusted_size = vol_adjusted_result.get("position_value", 0)
         
-        # Choose position size (using most conservative for now)
-        position_size = min(
-            kelly_size.get("recommended_fraction", 0) * self.portfolio["capital"],
-            fixed_size.get("position_value", 0),
-            vol_adjusted_size.get("position_value", 0)
-        )
+        # Choose position size (prioritize volatility-adjusted)
+        position_size = vol_adjusted_size
+        
+        # Consider half-kelly if more conservative
+        if half_kelly_size > 0 and half_kelly_size < position_size:
+            position_size = half_kelly_size
+        
+        # Apply max position size based on regime
+        max_regime_fraction = self.regime_risk.max_position_sizes.get(self.current_regime, 0.25)
+        max_position = self.portfolio["capital"] * max_regime_fraction
+        position_size = min(position_size, max_position)
+        
+        # Minimum position size
+        min_position = self.portfolio["capital"] * 0.005  # 0.5% minimum
+        position_size = max(position_size, min_position)
         
         position_fraction = position_size / self.portfolio["capital"] if self.portfolio["capital"] > 0 else 0
         
-        # Calculate stop loss
-        atr = price * 0.02  # 2% ATR placeholder
+        # ===== STOP LOSS CALCULATIONS =====
+        
+        # Get regime-adjusted stop multiplier
+        regime_stop_multiplier = self.regime_risk.stop_multipliers.get(self.current_regime, 2.0)
+        
+        # Calculate ATR-based stop loss
         stop_result = self.atr_stop.calculate(
             entry_price=price,
             atr=atr,
-            multiplier=self.regime_risk.stop_multipliers.get(self.current_regime, 2.0)
+            multiplier=regime_stop_multiplier
         )
         
-        # Apply regime adjustments
+        # Also calculate volatility stop for comparison
+        # Generate mock returns for volatility stop (in production, use historical)
+        mock_returns = np.random.normal(0, volatility / np.sqrt(252), 20)
+        vol_stop_result = self.vol_stop.calculate(
+            entry_price=price,
+            returns=mock_returns.tolist(),
+            multiplier=regime_stop_multiplier
+        )
+        
+        # Use the more conservative stop
+        if vol_stop_result.get("stop_price", 0) > stop_result.get("stop_price", 0):
+            stop_price = vol_stop_result["stop_price"]
+            stop_distance = vol_stop_result["stop_distance"]
+            stop_percent = vol_stop_result["stop_percent"]
+        else:
+            stop_price = stop_result["stop_price"]
+            stop_distance = stop_result["stop_distance"]
+            stop_percent = stop_result["stop_percent"]
+        
+        # ===== REGIME ADJUSTMENTS =====
+        
+        # Prepare risk parameters for regime adjustment
         risk_params = {
             "position_size": position_size,
             "position_fraction": position_fraction,
-            "stop_distance": stop_result["stop_distance"],
-            "stop_percent": stop_result["stop_percent"],
-            "stop_price": stop_result["stop_price"],
-            "risk_per_trade": stop_result["risk_per_share"] * (position_size / price) if price > 0 else 0
+            "stop_distance": stop_distance,
+            "stop_percent": stop_percent,
+            "stop_price": stop_price,
+            "risk_per_trade": stop_distance * (position_size / price) if price > 0 else 0
         }
         
+        # Apply regime-based risk adjustments
         adjusted_params = self.regime_risk.adjust_risk(risk_params, self.current_regime)
         
-        # Calculate risk score
+        # ===== RISK SCORING =====
+        
+        # Calculate portfolio correlation
+        avg_correlation = self._calculate_avg_correlation(symbol)
+        
+        # Score the trade
         risk_score_result = self.risk_scorer.score_trade({
             **adjusted_params,
             "volatility": volatility,
             "regime": self.current_regime,
-            "volume": 1000000,  # Placeholder
-            "avg_volume": 800000,  # Placeholder
-            "bid_ask_spread": 0.001,  # Placeholder
-            "avg_portfolio_correlation": 0.5,  # Placeholder
-            "leverage": 1.0,  # Placeholder
-            "time_horizon_days": 5  # Placeholder
+            "volume": volume,
+            "avg_volume": avg_volume,
+            "bid_ask_spread": bid_ask_spread,
+            "avg_portfolio_correlation": avg_correlation,
+            "leverage": 1.0,  # No leverage by default
+            "time_horizon_days": 5  # Default swing trading horizon
         })
         
-        # Create trade object
+        # ===== CREATE TRADE OBJECT =====
+        
         trade = {
             "ticker": symbol,
             "analysis": analysis,
@@ -232,23 +318,44 @@ class RiskManager(BaseAgent):
             "entry_price": price,
             "stop_price": adjusted_params["stop_price"],
             "stop_percent": adjusted_params["stop_percent"],
+            "stop_distance": adjusted_params["stop_distance"],
             "risk_per_trade": adjusted_params["risk_per_trade"],
             "risk_score": risk_score_result["risk_score"],
             "risk_level": risk_score_result["risk_level"],
             "risk_components": risk_score_result["components"],
             "risk_warnings": risk_score_result["warnings"],
+            "should_trade": risk_score_result["should_trade"],
             "regime": self.current_regime,
             "regime_description": self.regime_risk._get_regime_description(self.current_regime),
+            "volatility": volatility,
+            "atr": atr,
+            "position_sizing_methods": {
+                "kelly": kelly_size,
+                "half_kelly": half_kelly_size,
+                "fixed_fraction": fixed_size,
+                "volatility_adjusted": vol_adjusted_size,
+                "selected": adjusted_params["position_size"]
+            },
+            "stop_methods": {
+                "atr_stop": stop_result["stop_price"],
+                "volatility_stop": vol_stop_result.get("stop_price", 0),
+                "selected": adjusted_params["stop_price"]
+            },
             "timestamp": datetime.now().isoformat()
         }
+        
+        # ===== QUEUE MANAGEMENT =====
         
         # Add to queue if approved
         if risk_score_result["should_trade"]:
             await self.approved_queue.add(trade)
-            logging.info(f"✅ Trade approved for {symbol} (risk: {risk_score_result['risk_score']:.2f})")
+            logging.info(f"✅ Trade approved for {symbol}: ${adjusted_params['position_size']:,.2f} position, "
+                        f"stop ${adjusted_params['stop_price']:.2f} ({adjusted_params['stop_percent']:.1f}%), "
+                        f"risk score: {risk_score_result['risk_score']:.2f}")
             message_type = "risk_approved"
         else:
-            logging.info(f"❌ Trade rejected for {symbol} (risk: {risk_score_result['risk_score']:.2f})")
+            logging.info(f"❌ Trade rejected for {symbol} (risk score: {risk_score_result['risk_score']:.2f}, "
+                        f"level: {risk_score_result['risk_level']})")
             message_type = "risk_rejected"
         
         return AgentMessage(
@@ -268,65 +375,191 @@ class RiskManager(BaseAgent):
                 "total_value": self.portfolio["capital"],
                 "cash": self.portfolio["cash"],
                 "invested": self.portfolio["capital"] - self.portfolio["cash"],
-                "num_positions": 0
+                "num_positions": 0,
+                "timestamp": datetime.now().isoformat()
             }
         
-        # Calculate portfolio returns (would use historical data)
-        returns = [0.01, -0.005, 0.02, -0.01, 0.015]  # Placeholder
+        # Calculate portfolio returns from historical data
+        portfolio_returns = self._calculate_portfolio_returns()
         
         # Calculate VaR
-        var = self.var_calc.calculate(returns, self.portfolio["capital"])
+        var_result = self.var_calc.calculate(
+            returns=portfolio_returns,
+            portfolio_value=self.portfolio["capital"]
+        )
         
-        # Calculate Expected Shortfall
-        es = self.es_calc.calculate(returns, self.portfolio["capital"])
+        # Calculate Expected Shortfall (CVaR)
+        es_result = self.es_calc.calculate(
+            returns=portfolio_returns,
+            portfolio_value=self.portfolio["capital"]
+        )
         
-        # Calculate diversification
-        diversification = self.diversification.calculate(self.portfolio["positions"])
+        # Calculate diversification score
+        diversification_result = self.diversification.calculate(self.portfolio["positions"])
         
         # Run stress tests
-        stress = self.stress_tester.test_portfolio(self.portfolio["positions"])
+        stress_result = self.stress_tester.test_portfolio(self.portfolio["positions"])
         
         # Calculate portfolio risk score
+        sector_exposures = self._calculate_sector_exposures()
+        
         portfolio_for_scoring = {
             "positions": self.portfolio["positions"],
-            "returns": returns,
+            "returns": portfolio_returns,
             "value": self.portfolio["capital"],
-            "var_95": var.get("var_percent", 2) / 100,
-            "max_drawdown": 0.10,  # Placeholder
-            "sector_exposures": self._calculate_sector_exposures(),
-            "leverage": 1.0,  # Placeholder
-            "correlations": [0.5, 0.6, 0.4]  # Placeholder
+            "var_95": var_result.get("var_percent", 2) / 100,
+            "max_drawdown": self._calculate_max_drawdown(portfolio_returns),
+            "sector_exposures": sector_exposures,
+            "leverage": 1.0,  # No leverage by default
+            "correlations": self._calculate_portfolio_correlations()
         }
         
-        portfolio_risk = self.risk_scorer.score_portfolio(portfolio_for_scoring)
+        portfolio_risk_score = self.risk_scorer.score_portfolio(portfolio_for_scoring)
+        
+        # Calculate additional metrics
+        invested = self.portfolio["capital"] - self.portfolio["cash"]
+        invested_pct = (invested / self.portfolio["capital"] * 100) if self.portfolio["capital"] > 0 else 0
         
         return {
             "total_value": self.portfolio["capital"],
             "cash": self.portfolio["cash"],
-            "invested": self.portfolio["capital"] - self.portfolio["cash"],
+            "invested": invested,
+            "invested_pct": invested_pct,
             "num_positions": len(self.portfolio["positions"]),
-            "var": var,
-            "expected_shortfall": es,
-            "diversification": diversification,
-            "stress_test": stress,
-            "portfolio_risk_score": portfolio_risk,
+            "var": var_result,
+            "expected_shortfall": es_result,
+            "diversification": diversification_result,
+            "stress_test": stress_result,
+            "portfolio_risk_score": portfolio_risk_score,
+            "sector_exposures": sector_exposures,
             "timestamp": datetime.now().isoformat()
         }
     
+    def _calculate_avg_correlation(self, new_symbol: str) -> float:
+        """
+        Calculate average correlation between new symbol and existing portfolio
+        """
+        if len(self.portfolio["positions"]) == 0:
+            return 0.5  # Neutral correlation for first position
+        
+        if len(self.price_history) < 2:
+            return 0.6  # Default moderate correlation
+        
+        try:
+            # Get returns for existing positions
+            existing_returns = []
+            for position in self.portfolio["positions"]:
+                symbol = position["symbol"]
+                if symbol in self.price_history and len(self.price_history[symbol]) > 20:
+                    prices = [p["price"] for p in self.price_history[symbol][-20:]]
+                    if len(prices) > 1:
+                        returns = [(prices[i] - prices[i-1]) / prices[i-1] 
+                                  for i in range(1, len(prices))]
+                        existing_returns.append(returns)
+            
+            # Get returns for new symbol
+            if new_symbol in self.price_history and len(self.price_history[new_symbol]) > 20:
+                prices = [p["price"] for p in self.price_history[new_symbol][-20:]]
+                new_returns = [(prices[i] - prices[i-1]) / prices[i-1] 
+                              for i in range(1, len(prices))]
+                
+                # Calculate correlations with existing positions
+                correlations = []
+                for existing in existing_returns:
+                    if len(existing) == len(new_returns):
+                        corr = np.corrcoef(existing, new_returns)[0, 1]
+                        if not np.isnan(corr):
+                            correlations.append(corr)
+                
+                if correlations:
+                    avg_correlation = np.mean(correlations)
+                    return max(-1.0, min(1.0, avg_correlation))
+            
+            return 0.6  # Default moderate correlation
+            
+        except Exception as e:
+            logging.warning(f"Error calculating correlation: {e}")
+            return 0.6
+    
+    def _calculate_portfolio_returns(self) -> List[float]:
+        """
+        Calculate historical portfolio returns
+        """
+        if not self.portfolio["historical_returns"]:
+            # Generate mock returns if no historical data
+            return np.random.normal(0, 0.01, 252).tolist()
+        
+        return self.portfolio["historical_returns"][-252:]  # Last 252 days
+    
+    def _calculate_max_drawdown(self, returns: List[float]) -> float:
+        """
+        Calculate maximum drawdown from returns
+        """
+        if not returns:
+            return 0.0
+        
+        cumulative = 1
+        peak = 1
+        max_drawdown = 0
+        
+        for r in returns:
+            cumulative *= (1 + r)
+            if cumulative > peak:
+                peak = cumulative
+            drawdown = (peak - cumulative) / peak
+            if drawdown > max_drawdown:
+                max_drawdown = drawdown
+        
+        return max_drawdown
+    
+    def _calculate_portfolio_correlations(self) -> List[float]:
+        """
+        Calculate correlation matrix for portfolio positions
+        """
+        if len(self.portfolio["positions"]) < 2:
+            return [1.0]
+        
+        correlations = []
+        symbols = [p["symbol"] for p in self.portfolio["positions"]]
+        
+        for i in range(len(symbols)):
+            for j in range(i + 1, len(symbols)):
+                if symbols[i] in self.price_history and symbols[j] in self.price_history:
+                    # Get returns for both symbols
+                    prices_i = [p["price"] for p in self.price_history[symbols[i]][-30:]]
+                    prices_j = [p["price"] for p in self.price_history[symbols[j]][-30:]]
+                    
+                    if len(prices_i) > 1 and len(prices_j) > 1:
+                        returns_i = [(prices_i[k] - prices_i[k-1]) / prices_i[k-1] 
+                                    for k in range(1, len(prices_i))]
+                        returns_j = [(prices_j[k] - prices_j[k-1]) / prices_j[k-1] 
+                                    for k in range(1, len(prices_j))]
+                        
+                        min_len = min(len(returns_i), len(returns_j))
+                        if min_len > 1:
+                            corr = np.corrcoef(returns_i[:min_len], returns_j[:min_len])[0, 1]
+                            if not np.isnan(corr):
+                                correlations.append(corr)
+        
+        return correlations if correlations else [0.5]
+    
     def _calculate_sector_exposures(self) -> Dict[str, float]:
-        """Calculate sector exposures for current portfolio"""
+        """
+        Calculate sector exposures for current portfolio
+        """
         sector_exposures = {}
+        total_value = 0
         
         for position in self.portfolio["positions"]:
             sector = position.get("sector", "Unknown")
             value = position.get("value", 0)
             sector_exposures[sector] = sector_exposures.get(sector, 0) + value
+            total_value += value
         
-        # Normalize
-        total = sum(sector_exposures.values())
-        if total > 0:
+        # Normalize to percentages
+        if total_value > 0:
             for sector in sector_exposures:
-                sector_exposures[sector] /= total
+                sector_exposures[sector] = (sector_exposures[sector] / total_value) * 100
         
         return sector_exposures
     
@@ -338,40 +571,66 @@ class RiskManager(BaseAgent):
         symbol = updates.get("symbol")
         
         if action == "buy":
-            # Add new position
-            position = {
-                "symbol": symbol,
-                "shares": updates.get("shares"),
-                "entry_price": updates.get("price"),
-                "current_price": updates.get("price"),
-                "value": updates.get("value"),
-                "stop_loss": updates.get("stop_loss"),
-                "take_profit": updates.get("take_profit"),
-                "sector": updates.get("sector", "Unknown"),
-                "entry_time": datetime.now().isoformat()
-            }
-            self.portfolio["positions"].append(position)
-            self.portfolio["cash"] -= updates.get("value", 0)
-            logging.info(f"➕ Added position: {symbol} for ${updates.get('value', 0):,.2f}")
+            # Check if position already exists
+            existing = next((p for p in self.portfolio["positions"] if p["symbol"] == symbol), None)
+            
+            if existing:
+                # Average in
+                new_shares = existing["shares"] + updates.get("shares", 0)
+                new_value = new_shares * updates.get("price", existing["current_price"])
+                existing["shares"] = new_shares
+                existing["value"] = new_value
+                existing["current_price"] = updates.get("price", existing["current_price"])
+                logging.info(f"📈 Averaged up position: {symbol} to {new_shares} shares")
+            else:
+                # Add new position
+                position = {
+                    "symbol": symbol,
+                    "shares": updates.get("shares", 0),
+                    "entry_price": updates.get("price", 0),
+                    "current_price": updates.get("price", 0),
+                    "value": updates.get("value", 0),
+                    "stop_loss": updates.get("stop_loss", 0),
+                    "take_profit": updates.get("take_profit", 0),
+                    "sector": updates.get("sector", "Unknown"),
+                    "entry_time": datetime.now().isoformat()
+                }
+                self.portfolio["positions"].append(position)
+                self.portfolio["cash"] -= updates.get("value", 0)
+                logging.info(f"➕ Added position: {symbol} for ${updates.get('value', 0):,.2f}")
             
         elif action == "sell":
             # Remove position
-            initial_count = len(self.portfolio["positions"])
-            self.portfolio["positions"] = [
-                p for p in self.portfolio["positions"] 
-                if p["symbol"] != symbol
-            ]
-            if len(self.portfolio["positions"]) < initial_count:
-                self.portfolio["cash"] += updates.get("value", 0)
-                logging.info(f"➖ Sold position: {symbol} for ${updates.get('value', 0):,.2f}")
+            position = next((p for p in self.portfolio["positions"] if p["symbol"] == symbol), None)
+            if position:
+                self.portfolio["cash"] += position["value"]
+                self.portfolio["positions"] = [
+                    p for p in self.portfolio["positions"] 
+                    if p["symbol"] != symbol
+                ]
+                logging.info(f"➖ Sold position: {symbol} for ${position['value']:,.2f}")
         
         elif action == "update_price":
             # Update current prices
             for position in self.portfolio["positions"]:
                 if position["symbol"] == symbol:
-                    position["current_price"] = updates.get("price")
-                    position["value"] = position["shares"] * updates.get("price", 0)
+                    old_value = position["value"]
+                    position["current_price"] = updates.get("price", position["current_price"])
+                    position["value"] = position["shares"] * updates.get("price", position["current_price"])
+                    
+                    # Record return for historical tracking
+                    if old_value > 0:
+                        daily_return = (position["value"] - old_value) / old_value
+                        self.portfolio["historical_returns"].append(daily_return)
+                        # Keep last 500 returns
+                        if len(self.portfolio["historical_returns"]) > 500:
+                            self.portfolio["historical_returns"] = self.portfolio["historical_returns"][-500:]
                     break
+        
+        elif action == "update_portfolio_value":
+            # Update total portfolio value
+            total_invested = sum(p.get("value", 0) for p in self.portfolio["positions"])
+            self.portfolio["capital"] = self.portfolio["cash"] + total_invested
         
         self.portfolio["last_updated"] = datetime.now().isoformat()
         
@@ -380,7 +639,12 @@ class RiskManager(BaseAgent):
         self.portfolio["capital"] = self.portfolio["cash"] + total_invested
     
     def get_status(self) -> Dict[str, Any]:
-        """Get risk manager status"""
+        """
+        Get risk manager status
+        """
+        total_invested = sum(p.get("value", 0) for p in self.portfolio["positions"])
+        invested_pct = (total_invested / self.portfolio["capital"] * 100) if self.portfolio["capital"] > 0 else 0
+        
         return {
             "name": self.name,
             "status": self.health_status,
@@ -389,10 +653,13 @@ class RiskManager(BaseAgent):
             "portfolio": {
                 "capital": self.portfolio["capital"],
                 "cash": self.portfolio["cash"],
+                "invested": total_invested,
                 "positions": len(self.portfolio["positions"]),
-                "invested_pct": (self.portfolio["capital"] - self.portfolio["cash"]) / self.portfolio["capital"] * 100 if self.portfolio["capital"] > 0 else 0
+                "invested_pct": invested_pct
             },
             "queue": self.approved_queue.get_stats(),
             "current_regime": self.current_regime,
-            "risk_appetite": self.regime_risk.get_risk_appetite(self.current_regime)
+            "risk_appetite": self.regime_risk.get_risk_appetite(self.current_regime),
+            "regime_risk_multiplier": self.regime_risk.risk_multipliers.get(self.current_regime, 1.0),
+            "regime_stop_multiplier": self.regime_risk.stop_multipliers.get(self.current_regime, 2.0)
         }

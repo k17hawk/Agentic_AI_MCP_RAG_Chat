@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional, List
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class StressTester:
     """

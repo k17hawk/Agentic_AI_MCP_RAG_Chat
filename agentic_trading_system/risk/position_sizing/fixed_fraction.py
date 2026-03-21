@@ -2,7 +2,7 @@
 Fixed Fraction - Simple fixed percentage position sizing
 """
 from typing import Dict, Any, Optional
-from utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as  logging
 
 class FixedFraction:
     """

@@ -4,7 +4,7 @@ Expected Shortfall - Conditional Value at Risk (CVaR)
 from typing import Dict, Any, Optional, List
 import numpy as np
 from scipy import stats
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class ExpectedShortfall:
     """

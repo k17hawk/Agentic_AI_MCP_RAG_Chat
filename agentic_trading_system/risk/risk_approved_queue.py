@@ -7,7 +7,7 @@ import asyncio
 from collections import deque
 import heapq
 
-from utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as  logging
 
 class RiskApprovedQueue:
     """

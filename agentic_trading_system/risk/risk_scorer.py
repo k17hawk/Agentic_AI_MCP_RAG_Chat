@@ -4,7 +4,7 @@ Risk Scorer - Scores overall risk of a trade or portfolio
 from typing import Dict, Any, Optional, List
 import numpy as np
 from datetime import datetime
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class RiskScorer:
     """

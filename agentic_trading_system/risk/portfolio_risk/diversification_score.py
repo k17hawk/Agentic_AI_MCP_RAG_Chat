@@ -3,7 +3,7 @@ Diversification Score - Measures portfolio diversification
 """
 from typing import Dict, Any, Optional, List
 import numpy as np
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class DiversificationScore:
     """

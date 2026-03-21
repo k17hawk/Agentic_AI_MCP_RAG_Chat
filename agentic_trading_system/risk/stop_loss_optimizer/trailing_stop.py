@@ -2,7 +2,7 @@
 Trailing Stop - Dynamically adjusts stop loss as price moves favorably
 """
 from typing import Dict, Any, Optional, List
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class TrailingStop:
     """

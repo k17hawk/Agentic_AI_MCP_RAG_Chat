@@ -3,7 +3,7 @@ Volatility Stop - Stop loss based on price volatility
 """
 from typing import Dict, Any, List
 import numpy as np
-from utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as  logging
 
 class VolatilityStop:
     """
