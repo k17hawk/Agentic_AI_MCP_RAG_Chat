@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import json
 import os
 from collections import defaultdict
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class FeedbackLogger:
     """

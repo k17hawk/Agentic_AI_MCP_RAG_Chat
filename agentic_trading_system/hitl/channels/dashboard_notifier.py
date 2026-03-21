@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 import json
 import asyncio
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class DashboardNotifier:
     """

@@ -3,7 +3,7 @@ Message Builder - Builds formatted messages for different channels
 """
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class MessageBuilder:
     """

@@ -5,20 +5,20 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 import asyncio
 
-from utils.logger import logger as logging
-from agents.base_agent import BaseAgent, AgentMessage
+from agentic_trading_system.utils.logger import logger as logging
+from agentic_trading_system.agents.base_agent import BaseAgent, AgentMessage
 
 # Import all HITL components
-from hitl.channels.whatsapp_client import WhatsAppClient
-from hitl.channels.email_client import EmailClient
-from hitl.channels.sms_client import SMSClient
-from hitl.channels.dashboard_notifier import DashboardNotifier
-from hitl.message_builder import MessageBuilder
-from hitl.response_parser import ResponseParser
-from hitl.pending_queue import PendingQueue
-from hitl.timeout_manager import TimeoutManager
-from hitl.decision_tracker import DecisionTracker
-from hitl.feedback_logger import FeedbackLogger
+from agentic_trading_system.hitl.channels.whatsapp_client import WhatsAppClient
+from agentic_trading_system.hitl.channels.email_client import EmailClient
+from agentic_trading_system.hitl.channels.sms_client import SMSClient
+from agentic_trading_system.hitl.channels.dashboard_notifier import DashboardNotifier
+from agentic_trading_system.hitl.message_builder import MessageBuilder
+from agentic_trading_system.hitl.response_parser import ResponseParser
+from agentic_trading_system.hitl.pending_queue import PendingQueue
+from agentic_trading_system.hitl.timeout_manager import TimeoutManager
+from agentic_trading_system.hitl.decision_tracker import DecisionTracker
+from agentic_trading_system.hitl.feedback_logger import FeedbackLogger
 
 class AlertManager(BaseAgent):
     """

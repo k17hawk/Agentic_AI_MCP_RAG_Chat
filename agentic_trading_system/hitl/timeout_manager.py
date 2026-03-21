@@ -4,7 +4,7 @@ Timeout Manager - Handles timeouts for pending approvals
 from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime, timedelta
 import asyncio
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class TimeoutManager:
     """

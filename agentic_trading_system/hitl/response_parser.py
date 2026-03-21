@@ -4,7 +4,7 @@ Response Parser - Parses human responses from various channels
 from typing import Dict, List, Optional, Any, Tuple
 import re
 from datetime import datetime
-from utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as  logging
 
 class ResponseParser:
     """

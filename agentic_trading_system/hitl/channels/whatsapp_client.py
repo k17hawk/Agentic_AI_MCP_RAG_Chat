@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 import os
 from twilio.rest import Client
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class WhatsAppClient:
     """

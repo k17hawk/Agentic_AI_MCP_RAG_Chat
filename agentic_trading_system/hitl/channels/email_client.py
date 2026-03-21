@@ -8,7 +8,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 import os
-from utils.logger import logging
+from agentic_trading_system.utils.logger import logging
 
 class EmailClient:
     """
