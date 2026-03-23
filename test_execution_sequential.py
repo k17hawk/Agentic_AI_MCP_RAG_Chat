@@ -30,6 +30,7 @@ from agentic_trading_system.utils.logger import logging
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
+
 class ExecutionSequentialTest:
     """
     Sequential test for Execution module
