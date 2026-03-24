@@ -27,8 +27,6 @@ from agentic_trading_system.execution.settlement import Settlement
 from agentic_trading_system.agents.base_agent import AgentMessage
 from agentic_trading_system.utils.logger import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 
 
 class ExecutionSequentialTest:
