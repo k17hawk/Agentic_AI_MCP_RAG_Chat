@@ -1,10 +1,11 @@
+# trailing_stop_order.py - Fixed Version
 """
 Trailing Stop Order - Stop that follows price movements
 """
 from typing import Dict, Any, Optional
 from datetime import datetime
 import uuid
-from utils.logger import logger as logging
+from agentic_trading_system.utils.logger import logger as logging
 
 class TrailingStopOrder:
     """
@@ -39,6 +40,9 @@ class TrailingStopOrder:
             trail_value = (self.default_trail_percent if trail_type == "PERCENT" 
                           else self.default_trail_amount)
         
+        if activation_percent is None:
+            activation_percent = self.activation_percent
+        
         order = {
             "order_id": str(uuid.uuid4()),
             "client_order_id": client_id or str(uuid.uuid4()),
@@ -49,8 +53,8 @@ class TrailingStopOrder:
             "entry_price": entry_price,
             "trail_type": trail_type,
             "trail_value": trail_value,
-            "activation_percent": activation_percent or self.activation_percent,
-            "current_stop": None,
+            "activation_percent": activation_percent,
+            "current_stop": None,  # Initialize as None
             "highest_price": entry_price,
             "lowest_price": entry_price,
             "activated": False,
@@ -67,6 +71,12 @@ class TrailingStopOrder:
         """
         Update trailing stop based on current price
         """
+        # Initialize highest/lowest if not set
+        if order.get("highest_price") is None:
+            order["highest_price"] = current_price
+        if order.get("lowest_price") is None:
+            order["lowest_price"] = current_price
+        
         # Update highest/lowest price
         if order["side"] == "SELL":  # Long position
             if current_price > order["highest_price"]:
@@ -86,13 +96,17 @@ class TrailingStopOrder:
         if order["activated"]:
             new_stop = self._calculate_stop_price(order, current_price)
             
-            # Stop can only move in favorable direction
-            if order["side"] == "SELL":  # Long - stop only moves up
-                if new_stop > order.get("current_stop", 0):
-                    order["current_stop"] = new_stop
-            else:  # Short - stop only moves down
-                if new_stop < order.get("current_stop", float('inf')):
-                    order["current_stop"] = new_stop
+            # Initialize current_stop if None
+            if order.get("current_stop") is None:
+                order["current_stop"] = new_stop
+            else:
+                # Stop can only move in favorable direction
+                if order["side"] == "SELL":  # Long - stop only moves up
+                    if new_stop > order["current_stop"]:
+                        order["current_stop"] = new_stop
+                else:  # Short - stop only moves down
+                    if new_stop < order["current_stop"]:
+                        order["current_stop"] = new_stop
         
         order["updated_at"] = datetime.now().isoformat()
         
@@ -102,8 +116,8 @@ class TrailingStopOrder:
         """
         Check if trailing stop should be triggered
         """
-        if not order["activated"] or order["current_stop"] is None:
-            return {"triggered": False, "reason": "Not activated"}
+        if not order["activated"] or order.get("current_stop") is None:
+            return {"triggered": False, "reason": "Not activated or stop not set"}
         
         if order["side"] == "SELL":  # Long position
             triggered = current_price <= order["current_stop"]
@@ -137,7 +151,7 @@ class TrailingStopOrder:
             "created_at": datetime.now().isoformat()
         }
         
-        logging.info(f"🎯 Trailing stop triggered for {order['symbol']} at ${order['current_stop']:.2f}")
+        logging.info(f"🎯 Trailing stop triggered for {order['symbol']} at ${order.get('current_stop', 0):.2f}")
         
         return {
             "trailing_stop": order,
@@ -148,6 +162,9 @@ class TrailingStopOrder:
         """Calculate current profit percentage"""
         entry = order["entry_price"]
         
+        if entry <= 0:
+            return 0.0
+        
         if order["side"] == "SELL":  # Long
             return ((current_price - entry) / entry) * 100
         else:  # Short
@@ -157,11 +174,17 @@ class TrailingStopOrder:
         """Calculate new stop price based on trail type"""
         if order["trail_type"] == "PERCENT":
             if order["side"] == "SELL":  # Long
-                return order["highest_price"] * (1 - order["trail_value"] / 100)
+                highest = order.get("highest_price", current_price)
+                trail_amount = highest * (order["trail_value"] / 100)
+                return highest - trail_amount
             else:  # Short
-                return order["lowest_price"] * (1 + order["trail_value"] / 100)
+                lowest = order.get("lowest_price", current_price)
+                trail_amount = lowest * (order["trail_value"] / 100)
+                return lowest + trail_amount
         else:  # FIXED
             if order["side"] == "SELL":  # Long
-                return order["highest_price"] - order["trail_value"]
+                highest = order.get("highest_price", current_price)
+                return highest - order["trail_value"]
             else:  # Short
-                return order["lowest_price"] + order["trail_value"]
+                lowest = order.get("lowest_price", current_price)
+                return lowest + order["trail_value"]

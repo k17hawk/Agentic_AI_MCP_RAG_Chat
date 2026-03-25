@@ -179,6 +179,8 @@ class SmartOrderRouting:
             }]
         }
     
+    # Fix the _route_dark_pool_first method in smart_order_routing.py
+
     async def _route_dark_pool_first(self, order: Dict) -> Dict[str, Any]:
         """
         Route to dark pools first, then lit exchanges
@@ -215,23 +217,37 @@ class SmartOrderRouting:
                 remaining -= split_qty
         
         # Send remaining to lit exchanges
-        if remaining > 0:
+        if remaining > 0 and lit_exchanges:
             # Use best lit exchange for remaining
-            best_lit = lit_exchanges[0] if lit_exchanges else None
-            if best_lit:
-                splits.append({
-                    "venue": best_lit[0],
-                    "quantity": remaining,
-                    "type": "lit"
-                })
+            best_lit = min(lit_exchanges, key=lambda x: x[1].get("taker_fee", 0.0002))
+            splits.append({
+                "venue": best_lit[0],
+                "quantity": remaining,
+                "type": "lit"
+            })
+            venue_to_use = best_lit[0]
+        elif dark_pools:
+            # If no lit exchanges, use dark pool
+            venue_to_use = dark_pools[0][0]
+        else:
+            # Fallback to first venue
+            venue_to_use = list(self.venue_analyzer.venues.keys())[0] if self.venue_analyzer.venues else None
         
-        return {
-            "type": "split" if len(splits) > 1 else "single",
-            "splits": splits,
-            "quantity": quantity,
-            "dark_pool_quantity": quantity - remaining,
-            "lit_quantity": remaining
-        }
+        if len(splits) == 1:
+            return {
+                "type": "single",
+                "venue": venue_to_use,
+                "quantity": quantity,
+                "splits": splits
+            }
+        else:
+            return {
+                "type": "split",
+                "splits": splits,
+                "quantity": quantity,
+                "dark_pool_quantity": quantity - remaining,
+                "lit_quantity": remaining
+            }
     
     async def _route_lit_only(self, order: Dict) -> Dict[str, Any]:
         """
