@@ -9,7 +9,7 @@ import pytz
 from loguru import logger
 import re
 
-from triggers.base_trigger import BaseTrigger, TriggerEvent, TriggerConfig
+from agentic_trading_system.triggers.base_trigger import BaseTrigger, TriggerEvent, TriggerConfig
 
 class MarketSession:
     """Market session definitions"""

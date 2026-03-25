@@ -1,6 +1,6 @@
 """
 Abstract Base Trigger - Foundation for all trigger agents
-All triggers MUST inherit from this class
+ALL triggers MUST inherit from this class
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional, Set
@@ -22,6 +22,22 @@ class TriggerPriority(Enum):
     MEDIUM = 2
     HIGH = 3
     CRITICAL = 4
+    
+    @classmethod
+    def from_value(cls, value):
+        """Convert integer or string to enum"""
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, int):
+            for priority in cls:
+                if priority.value == value:
+                    return priority
+        if isinstance(value, str):
+            try:
+                return cls[value.upper()]
+            except KeyError:
+                pass
+        return cls.MEDIUM  # Default
 
 class TriggerStatus(Enum):
     """Status of trigger execution"""
@@ -54,7 +70,15 @@ class TriggerConfig(BaseModel):
     max_calls_per_hour: int = 1000
     
     class Config:
-        use_enum_values = True
+        use_enum_values = False  # Don't convert enum to value, keep as enum
+        arbitrary_types_allowed = True
+    
+    @validator('priority', pre=True, always=True)
+    def validate_priority(cls, v):
+        """Convert integer or string to TriggerPriority enum"""
+        if v is None:
+            return TriggerPriority.MEDIUM
+        return TriggerPriority.from_value(v)
 
 class TriggerEvent(BaseModel):
     """
@@ -143,7 +167,35 @@ class BaseTrigger(ABC):
         Initialize base trigger with common functionality
         """
         self.name = name
-        self.config = TriggerConfig(**config)
+        
+        # Make a copy of config to avoid modifying original
+        config_copy = config.copy()
+        
+        # Ensure name is in config
+        if "name" not in config_copy:
+            config_copy["name"] = name
+        
+        # Handle priority conversion before creating config
+        if "priority" in config_copy:
+            # Convert integer to enum
+            if isinstance(config_copy["priority"], int):
+                config_copy["priority"] = TriggerPriority.from_value(config_copy["priority"])
+            # Convert string to enum
+            elif isinstance(config_copy["priority"], str):
+                try:
+                    config_copy["priority"] = TriggerPriority[config_copy["priority"].upper()]
+                except KeyError:
+                    config_copy["priority"] = TriggerPriority.MEDIUM
+        
+        # Create config
+        try:
+            self.config = TriggerConfig(**config_copy)
+        except Exception as e:
+            logger.error(f"Error creating config for {name}: {e}")
+            # Fallback with default priority
+            config_copy["priority"] = TriggerPriority.MEDIUM
+            self.config = TriggerConfig(**config_copy)
+        
         self.memory = memory_agent  # For storing historical data
         self.message_bus = message_bus  # For sending events
         
@@ -161,7 +213,10 @@ class BaseTrigger(ABC):
         self._cache: Dict[str, Any] = {}
         self._cache_ttl: Dict[str, datetime] = {}
         
-        logger.info(f"✅ Initialized {self.name} (Priority: {self.config.priority.value})")
+        # Safely get priority value
+        priority_value = self.config.priority.value if hasattr(self.config.priority, 'value') else self.config.priority
+        
+        logger.info(f"✅ Initialized {self.name} (Priority: {priority_value})")
     
     @abstractmethod
     async def scan(self) -> List[TriggerEvent]:
@@ -337,9 +392,11 @@ class BaseTrigger(ABC):
         # Z-score
         z_score = (current_value - mean) / std
         
-        # Approximate p-value (simplified)
-        
-        p_value = 2 * (1 - stats.norm.cdf(abs(z_score)))
+        # Approximate p-value
+        try:
+            p_value = 2 * (1 - stats.norm.cdf(abs(z_score)))
+        except:
+            p_value = 1.0
         
         return {
             "z_score": float(z_score),
@@ -364,11 +421,13 @@ class BaseTrigger(ABC):
     
     def get_status(self) -> Dict[str, Any]:
         """Get trigger status for monitoring"""
+        priority_value = self.config.priority.value if hasattr(self.config.priority, 'value') else self.config.priority
+        
         return {
             "name": self.name,
             "status": self.status.value,
             "enabled": self.config.enabled,
-            "priority": self.config.priority.value,
+            "priority": priority_value,
             "last_run": self.last_run_time.isoformat() if self.last_run_time else None,
             "total_signals": self.total_signals_generated,
             "error_count": self.error_count,
