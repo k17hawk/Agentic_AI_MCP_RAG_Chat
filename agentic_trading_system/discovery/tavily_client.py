@@ -1,13 +1,22 @@
+# =============================================================================
+# discovery/tavily_client.py (UPDATED)
+# =============================================================================
 """
 Tavily Client - Web search integration
 """
+
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import aiohttp
 import asyncio
 
-from agentic_trading_system.utils.logger import logger as  logging
+from agentic_trading_system.utils.logger import logger as logging
 from agentic_trading_system.utils.decorators import retry
+
+# Import from new config structure
+from agentic_trading_system.constants import Source, RateLimit, CacheTTL
+from agentic_trading_system.config.config__entity import TavilyConfig
+
 
 class TavilyClient:
     """
@@ -15,18 +24,25 @@ class TavilyClient:
     Provides high-quality search results optimized for AI applications
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: TavilyConfig):
+        """
+        Initialize Tavily client.
+        
+        Args:
+            config: TavilyConfig object
+        """
         self.config = config
-        self.api_key = config.get("api_key")
-        self.base_url = config.get("base_url", "https://api.tavily.com")
+        self.api_key = config.api_key
+        self.base_url = config.base_url
+        self.search_depth = config.search_depth.value if hasattr(config.search_depth, 'value') else config.search_depth
         
         # Rate limiting
-        self.rate_limit = config.get("rate_limit", 10)  # requests per minute
-        self.request_timestamps = []
+        self.rate_limit = config.rate_limit
+        self.request_timestamps: List[float] = []
         
         # Cache
-        self.cache = {}
-        self.cache_ttl = config.get("cache_ttl_minutes", 30) * 60
+        self.cache: Dict = {}
+        self.cache_ttl = config.cache_ttl_minutes * 60
         
         logging.info(f"✅ TavilyClient initialized")
     
@@ -34,6 +50,9 @@ class TavilyClient:
     async def search(self, query: str, options: Dict = None) -> Dict[str, Any]:
         """
         Perform web search using Tavily
+        
+        Returns:
+            Dict with 'items' and 'metadata' keys
         """
         options = options or {}
         logging.info(f"🔍 Tavily searching for: '{query}'")
@@ -49,22 +68,21 @@ class TavilyClient:
         await self._rate_limit()
         
         try:
-            # Prepare request
             url = f"{self.base_url}/search"
             
             payload = {
                 "api_key": self.api_key,
                 "query": query,
-                "search_depth": options.get("search_depth", "basic"),
-                "include_answer": options.get("include_answer", True),
-                "include_raw_content": options.get("include_raw_content", False),
-                "max_results": options.get("max_results", 10),
-                "include_domains": options.get("include_domains", []),
-                "exclude_domains": options.get("exclude_domains", [])
+                "search_depth": options.get("search_depth", self.search_depth),
+                "include_answer": options.get("include_answer", self.config.include_answer),
+                "include_raw_content": options.get("include_raw_content", self.config.include_raw_content),
+                "max_results": options.get("max_results", self.config.max_results),
+                "include_domains": options.get("include_domains", self.config.include_domains),
+                "exclude_domains": options.get("exclude_domains", self.config.exclude_domains)
             }
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload) as response:
+                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds)) as response:
                     if response.status == 200:
                         data = await response.json()
                         
@@ -77,8 +95,12 @@ class TavilyClient:
                                 "content": result.get("content"),
                                 "score": result.get("score"),
                                 "published_at": result.get("published_date"),
-                                "source": "tavily",
-                                "type": "web_search"
+                                "source": Source.TAVILY,
+                                "type": "web_search",
+                                "metadata": {
+                                    "response_time": data.get("response_time"),
+                                    "answer": data.get("answer")
+                                }
                             })
                         
                         result = {
@@ -107,9 +129,7 @@ class TavilyClient:
             return {"items": [], "metadata": {"error": str(e)}}
     
     async def extract(self, urls: List[str]) -> Dict[str, Any]:
-        """
-        Extract content from specific URLs
-        """
+        """Extract content from specific URLs"""
         await self._rate_limit()
         
         try:
@@ -121,7 +141,7 @@ class TavilyClient:
             }
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload) as response:
+                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds)) as response:
                     if response.status == 200:
                         data = await response.json()
                         return {
@@ -141,11 +161,11 @@ class TavilyClient:
         
         # Remove timestamps older than 1 minute
         self.request_timestamps = [ts for ts in self.request_timestamps 
-                                  if now - ts < 60]
+                                  if now - ts < RateLimit.WINDOW_SECONDS]
         
         # Check if we've exceeded rate limit
         if len(self.request_timestamps) >= self.rate_limit:
-            sleep_time = 60 - (now - self.request_timestamps[0])
+            sleep_time = RateLimit.WINDOW_SECONDS - (now - self.request_timestamps[0])
             if sleep_time > 0:
                 logging.warning(f"⏳ Rate limit reached, waiting {sleep_time:.1f}s")
                 await asyncio.sleep(sleep_time)

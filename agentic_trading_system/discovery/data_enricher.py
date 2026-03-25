@@ -1,17 +1,26 @@
+# =============================================================================
+# discovery/data_enricher.py (UPDATED)
+# =============================================================================
 """
 Data Enricher - Enriches discovered data with additional context
 """
+
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import yfinance as yf
 import asyncio
 
 from agentic_trading_system.utils.logger import logger as logging
+
+# Import from new config structure
+from agentic_trading_system.constants import Source, EntityExtraction, ContentType
+from agentic_trading_system.config.config__entity import EnricherConfig
 from agentic_trading_system.discovery.entity_extractor.regex_extractor import RegexExtractor
+
 
 class DataEnricher:
     """
-    Enriches discovered data with additional context
+    Enriches discovered data with additional context.
 
     Enrichments:
     - Company information (sector, industry, market cap)
@@ -21,12 +30,10 @@ class DataEnricher:
     - Relevance scoring
     """
 
-    # Known valid tickers cache — avoids repeat yfinance 404s for bad tickers
+    # Known valid tickers cache
     _invalid_ticker_cache = set()
 
-    # Common English words that look like tickers but are not.
-    # This is the LAST safety net before a yfinance call — keep it comprehensive.
-    # Words seen in logs to cause 404s (IDEAS, QUOTE, CCPA) are included explicitly.
+    # Common English words that look like tickers
     _COMMON_WORDS = {
         # Articles / pronouns / conjunctions
         'THE', 'AND', 'FOR', 'BUT', 'NOT', 'ITS', 'ARE', 'WAS',
@@ -36,82 +43,83 @@ class DataEnricher:
         'THEY', 'THAN', 'BEEN', 'ALSO', 'MORE', 'WILL', 'YOUR',
         'HAVE', 'FROM', 'WITH', 'THAT', 'THIS', 'ABOUT', 'WOULD',
         'COULD', 'THEIR', 'THERE', 'THESE', 'THOSE', 'WHICH',
-        'JUST', 'ONLY', 'EVEN', 'THEN', 'WHEN', 'BOTH', 'EACH',
-        'SUCH', 'VERY', 'MUCH', 'MANY', 'MOST', 'SOME', 'INTO',
+
         # Business / finance abbreviations
         'INC', 'LLC', 'LTD', 'CORP', 'CO', 'PLC', 'LP', 'SA', 'AG', 'NV',
         'ETF', 'IPO', 'SEC', 'CEO', 'CFO', 'COO', 'CTO', 'CIO',
         'EPS', 'YOY', 'QOQ', 'TTM', 'ATH', 'ATL',
         'GDP', 'CPI', 'PMI', 'ESG', 'ROI', 'ROE', 'DCF', 'EBITDA',
         'SPAC', 'REIT', 'REITS',
+
         # Currencies
         'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'AUD', 'CAD', 'CHF',
         'HKD', 'SGD', 'NZD', 'KRW', 'INR',
+
         # Exchanges / regulators
         'NYSE', 'NASDAQ', 'AMEX', 'LSE', 'TSX', 'HKEX', 'ASX',
-        'FINRA', 'CFTC', 'FDIC', 'FED', 'ECB',
+
         # Market / trading words
         'STOCK', 'STOCKS', 'SHARE', 'SHARES', 'PRICE', 'MARKET', 'MARKETS',
         'FUND', 'FUNDS', 'BOND', 'BONDS', 'TRADE', 'TRADES', 'CHART', 'CHARTS',
         'NEWS', 'DATA', 'HIGH', 'LOW', 'OPEN', 'CLOSE',
         'CALL', 'CALLS', 'BULL', 'BEAR', 'LONG', 'SHORT',
-        # Price-action and analysis words that appear adjacent to stock/price/trading
-        'GAIN', 'GAINS', 'LOSS', 'RALLY', 'SURGE', 'DROP', 'FALL',
-        'RISE', 'JUMP', 'SLIDE', 'SPIKE', 'DIP', 'PEAK', 'FLAT',
-        'UP', 'DOWN', 'RANGE', 'LEVEL', 'MARK', 'BASE', 'ZONE',
-        'MOVE', 'SETUP', 'PLAY', 'IDEA', 'PICK', 'RANK', 'SCAN',
-        'ALERT', 'WATCH', 'BREAK', 'CROSS', 'STOP', 'LIMIT', 'CAP',
-        'FLOOR', 'GRAPH', 'TREND', 'INFO', 'SITE', 'PAGE', 'LIST', 'FULL',
-        # Geopolitical / news words near trading/price in headlines
-        'WAR', 'WARS', 'DEAL', 'RISK', 'FEAR', 'TALK', 'TALKS',
-        'PLAN', 'BILL', 'ACT', 'LAW', 'RULE',
-        # Time / recency words
-        'WEEK', 'MONTH', 'YEAR', 'DAILY', 'LIVE', 'PRE', 'POST', 'LATE', 'EARLY',
+
         # UI / meta words
-        'REAL', 'BEST', 'TOP', 'NEW', 'OLD', 'KEY', 'MAIN', 'PLUS', 'PRO', 'API', 'APP',
-        # Common web / UI tokens present in scraped Tavily content
-        # (seen in logs: IDEAS, QUOTE, CCPA)
         'IDEAS', 'IDEA', 'QUOTE', 'QUOTES', 'VIEW', 'VIEWS',
         'ALERT', 'ALERTS', 'LOGIN', 'SIGN', 'TERMS', 'HELP',
         'ABOUT', 'HOME', 'BACK', 'NEXT', 'PREV', 'READ',
         'SHOW', 'HIDE', 'FULL', 'LIVE', 'FREE', 'MORE', 'LESS',
-        # Privacy / legal boilerplate
+
+        # Privacy / legal
         'CCPA', 'GDPR', 'DMCA', 'EULA', 'TOS',
-        'TOTAL', 'RETURN', 'VOLUME', 'VALUE', 'RATIO', 'SCORE', 'RATE',
-        'VS', 'VERSUS', 'TODAY', 'YESTERDAY', 'TOMORROW', 'SINCE', 'AFTER', 'BEFORE', 'DURING', 'WHILE',
-        'INDEX', 'YIELD', 'BETA', 'DELTA', 'GAMMA', 'THETA', 'SIGMA',
-        # Full company names (the ticker is different)
+
+        # Full company names
         'APPLE', 'GOOGLE', 'META', 'TESLA', 'AMAZON', 'MICROSOFT',
         'NVIDIA', 'DISNEY', 'NETFLIX', 'INTEL', 'CISCO', 'ORACLE',
     }
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: EnricherConfig):
+        """
+        Initialize data enricher.
+        
+        Args:
+            config: EnricherConfig object
+        """
         self.config = config
 
         # Cache for company info
-        self.company_cache = {}
-        self.cache_ttl = config.get("cache_ttl_minutes", 60) * 60
+        self.company_cache: Dict = {}
+        self.cache_ttl = config.cache_ttl_minutes * 60
 
         # Shorter TTL for price data
-        self.price_cache_ttl = config.get("price_cache_ttl_minutes", 5) * 60
+        self.price_cache_ttl = config.price_cache_ttl_minutes * 60
 
         # Entity extractor for ticker detection
-        self.extractor = RegexExtractor(config)
+        self.extractor = None  # Will be set later if needed
 
         logging.info(f"✅ DataEnricher initialized")
 
+    def set_extractor(self, extractor: RegexExtractor):
+        """Set the regex extractor for ticker detection."""
+        self.extractor = extractor
+
     async def enrich(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Enrich a single data item with additional context
+        Enrich a single data item with additional context.
+        
+        Args:
+            item: Raw data item
+            
+        Returns:
+            Enriched data item
         """
         enriched = item.copy()
 
         # Extract tickers from content
         content = f"{item.get('title', '')} {item.get('content', '')}"
-        raw_tickers = await self.extractor.extract_tickers(content)
+        raw_tickers = await self._extract_tickers(content)
 
-        # FIX: Filter out common words and previously failed tickers
-        # before making any yfinance calls
+        # Filter out common words and previously failed tickers
         tickers = [
             t for t in raw_tickers
             if t not in self._COMMON_WORDS
@@ -149,15 +157,27 @@ class DataEnricher:
 
     async def enrich_batch(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Enrich multiple items in parallel
+        Enrich multiple items in parallel.
+        
+        Args:
+            items: List of raw data items
+            
+        Returns:
+            List of enriched items
         """
         tasks = [self.enrich(item) for item in items]
         return await asyncio.gather(*tasks)
 
+    async def _extract_tickers(self, text: str) -> List[str]:
+        """Extract tickers using regex extractor."""
+        if self.extractor:
+            return await self.extractor.extract_tickers(text)
+        return []
+
     async def _get_company_info(self, ticker: str) -> Optional[Dict[str, Any]]:
         """
         Get company information from yfinance.
-        Skips invalid tickers and caches failures to avoid repeat 404s.
+        Skips invalid tickers and caches failures.
         """
         # Skip known invalid tickers
         if ticker in self._invalid_ticker_cache:
@@ -170,11 +190,18 @@ class DataEnricher:
                 return info
 
         try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
+            loop = asyncio.get_event_loop()
 
-            # yfinance returns a minimal dict with just {trailingPegRatio: None}
-            # for invalid tickers — check for a real field to confirm it's valid
+            def _get_info_blocking():
+                stock = yf.Ticker(ticker)
+                return stock.info
+
+            info = await asyncio.wait_for(
+                loop.run_in_executor(None, _get_info_blocking),
+                timeout=self.config.price_cache_ttl_minutes
+            )
+
+            # Validate info
             if not info or not info.get("symbol") and not info.get("longName") and not info.get("shortName"):
                 logging.debug(f"No valid company info for ticker: {ticker}")
                 self._invalid_ticker_cache.add(ticker)
@@ -203,18 +230,23 @@ class DataEnricher:
             self.company_cache[ticker] = (datetime.now().timestamp(), company_info)
             return company_info
 
+        except asyncio.TimeoutError:
+            logging.debug(f"yfinance timeout for {ticker}")
+            self._invalid_ticker_cache.add(ticker)
         except Exception as e:
             logging.debug(f"Error getting company info for {ticker}: {e}")
-            # Cache the failure so we don't retry on every search
             self._invalid_ticker_cache.add(ticker)
 
         return None
 
     def _calculate_relevance(self, item: Dict[str, Any], company_info: Dict) -> float:
         """
-        Calculate relevance score for this item
+        Calculate relevance score for this item.
+        
+        Returns:
+            Score between 0 and 1
         """
-        score = 0.5  # Base score
+        score = EntityExtraction.DEFAULT_RELEVANCE
 
         title = item.get("title", "").lower()
         content = item.get("content", "")[:500].lower()
@@ -239,11 +271,14 @@ class DataEnricher:
             if term in title or term in content:
                 score += 0.05
 
-        # Recency boost (if available)
+        # Recency boost
         published = item.get("published_at")
         if published:
             try:
-                pub_date = datetime.fromisoformat(published.replace("Z", "+00:00"))
+                if isinstance(published, str):
+                    pub_date = datetime.fromisoformat(published.replace("Z", "+00:00"))
+                else:
+                    pub_date = published
                 age_hours = (datetime.now() - pub_date).total_seconds() / 3600
                 if age_hours < 24:
                     score += 0.1
@@ -252,62 +287,63 @@ class DataEnricher:
             except Exception:
                 pass
 
-        return float(min(1.0, score))
+        return float(min(EntityExtraction.MAX_RELEVANCE, max(EntityExtraction.MIN_RELEVANCE, score)))
 
     def _get_source_authority(self, source: str) -> float:
         """
-        Get authority score for a source
+        Get authority score for a source.
+        
+        Returns:
+            Score between 0 and 1
         """
         source_lower = source.lower()
 
-        high_authority = {
-            "reuters", "bloomberg", "wsj", "wall street journal",
-            "financial times", "ft.com", "nytimes", "economist"
-        }
-        medium_authority = {
-            "cnbc", "yahoo", "seeking alpha", "marketwatch",
-            "forbes", "business insider", "investopedia"
-        }
-        low_authority = {
-            "twitter", "reddit", "stocktwits", "facebook",
-            "linkedin", "medium", "wordpress"
-        }
+        for src in EntityExtraction.HIGH_AUTHORITY_SOURCES:
+            if src in source_lower:
+                return EntityExtraction.SOURCE_AUTHORITY_SCORES['high']
 
-        for src in high_authority:
+        for src in EntityExtraction.MEDIUM_AUTHORITY_SOURCES:
             if src in source_lower:
-                return 1.0
-        for src in medium_authority:
-            if src in source_lower:
-                return 0.7
-        for src in low_authority:
-            if src in source_lower:
-                return 0.3
+                return EntityExtraction.SOURCE_AUTHORITY_SCORES['medium']
 
-        return 0.5  # Default
+        for src in EntityExtraction.LOW_AUTHORITY_SOURCES:
+            if src in source_lower:
+                return EntityExtraction.SOURCE_AUTHORITY_SCORES['low']
+
+        return EntityExtraction.SOURCE_AUTHORITY_SCORES['default']
 
     def _classify_content(self, item: Dict[str, Any]) -> str:
         """
-        Classify content type
+        Classify content type.
+        
+        Returns:
+            Content type string
         """
         title = item.get("title", "").lower()
         content = item.get("content", "")[:200].lower()
         combined = title + " " + content
 
         if any(word in combined for word in ["earnings", "revenue", "profit", "loss"]):
-            return "earnings"
+            return ContentType.EARNINGS
         elif any(word in combined for word in ["merger", "acquisition", "buyout", "takeover"]):
-            return "ma"
+            return ContentType.MA
         elif any(word in combined for word in ["upgrade", "downgrade", "rating", "target"]):
-            return "analyst_rating"
+            return ContentType.ANALYST_RATING
         elif any(word in combined for word in ["ipo", "offering", "listing"]):
-            return "ipo"
+            return ContentType.IPO
         elif any(word in combined for word in ["dividend", "buyback", "split"]):
-            return "corporate_action"
+            return ContentType.CORPORATE_ACTION
         elif any(word in combined for word in ["sec", "investigation", "lawsuit", "regulatory"]):
-            return "regulatory"
+            return ContentType.REGULATORY
         elif any(word in combined for word in ["ceo", "cfo", "executive", "management"]):
-            return "management"
+            return ContentType.MANAGEMENT
         elif any(word in combined for word in ["price", "target", "forecast", "prediction"]):
-            return "price_target"
+            return ContentType.PRICE_TARGET
         else:
-            return "general"
+            return ContentType.GENERAL
+
+    async def clear_cache(self) -> None:
+        """Clear all caches."""
+        self.company_cache.clear()
+        self._invalid_ticker_cache.clear()
+        logging.info("🧹 Data enricher cache cleared")

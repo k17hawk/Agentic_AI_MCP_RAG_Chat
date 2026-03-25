@@ -1,6 +1,3 @@
-# config/discovery_config.yaml
-# Minimal configuration for running discovery only
-
 # Tavily Search (web search)
 tavily_config:
   api_key: ${TAVILY_API_KEY}

@@ -1,19 +1,29 @@
+# =============================================================================
+# discovery/options_flow_client.py (UPDATED)
+# =============================================================================
 """
 Options Flow Client - Detects unusual options activity
 """
+
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import aiohttp
 import asyncio
-import yfinance as yf                     # Added for fallback
+import yfinance as yf
 import math
+import re
 
 from agentic_trading_system.utils.logger import logger as logging
 from agentic_trading_system.utils.decorators import retry
 
+# Import from new config structure
+from agentic_trading_system.constants import Source, OptionFlowThresholds, RateLimit, CacheTTL
+from agentic_trading_system.config.config__entity import OptionsFlowConfig
+
+
 class OptionsFlowClient:
     """
-    Detects and analyzes unusual options activity
+    Detects and analyzes unusual options activity.
 
     Sources:
     - Unusual options volume
@@ -23,36 +33,47 @@ class OptionsFlowClient:
     - Open interest changes
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: OptionsFlowConfig):
+        """
+        Initialize options flow client.
+        
+        Args:
+            config: OptionsFlowConfig object
+        """
         self.config = config
 
         # API keys
-        self.market_data_api = config.get("market_data_api")
-        self.fmp_key = config.get("fmp_key")
+        self.fmp_key = config.fmp_key
 
         # Rate limiting
-        self.rate_limit = config.get("rate_limit", 30)
-        self.request_timestamps = []
+        self.rate_limit = config.rate_limit
+        self.request_timestamps: List[float] = []
 
         # Cache
-        self.cache = {}
-        self.cache_ttl = config.get("cache_ttl_minutes", 15) * 60
+        self.cache: Dict = {}
+        self.cache_ttl = config.cache_ttl_minutes * 60
 
         # Thresholds
-        self.volume_threshold = config.get("volume_threshold", 2.0)  # 2x average
-        self.premium_threshold = config.get("premium_threshold", 100000)  # $100k
+        self.volume_threshold = config.volume_threshold
+        self.premium_threshold = config.premium_threshold
 
         logging.info(f"✅ OptionsFlowClient initialized")
 
     @retry(max_attempts=3, delay=1.0)
     async def search(self, query: str, options: Dict = None) -> Dict[str, Any]:
         """
-        Search for unusual options activity
+        Search for unusual options activity.
+        
+        Args:
+            query: Stock ticker or company name
+            options: Search options
+            
+        Returns:
+            Dict with 'items' and 'metadata' keys
         """
         options = options or {}
 
         # Extract ticker from query
-        import re
         ticker_match = re.search(r'\b[A-Z]{1,5}\b', query.upper())
         ticker = ticker_match.group() if ticker_match else query.upper().replace(" ", "")
 
@@ -63,6 +84,7 @@ class OptionsFlowClient:
         if cache_key in self.cache:
             cached_time, cached_result = self.cache[cache_key]
             if datetime.now().timestamp() - cached_time < self.cache_ttl:
+                logging.info(f"📦 Using cached options results for '{ticker}'")
                 return cached_result
 
         await self._rate_limit()
@@ -120,53 +142,51 @@ class OptionsFlowClient:
         logging.info(f"✅ Options flow: {len(unusual_flows)} unusual trades detected for {ticker}")
         return result
 
-    # ----------------------------------------------------------------------
-    # FIXED: Correct FMP endpoint and parsing
-    # ----------------------------------------------------------------------
     async def _fetch_from_fmp(self, ticker: str, options: Dict) -> List[Dict]:
-        """Fetch options data from FMP (correct endpoint) with yfinance fallback."""
+        """Fetch options data from FMP with yfinance fallback."""
         flows = []
 
-        # --- Attempt FMP (correct endpoint) ---
+        # Attempt FMP
         if self.fmp_key:
-            # Correct endpoint: /v3/option-chain/{symbol}
             url = f"https://financialmodelingprep.com/api/v3/option-chain/{ticker}"
             params = {"apikey": self.fmp_key}
+
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(url, params=params, timeout=10) as response:
+                    async with session.get(
+                        url, params=params,
+                        timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds)
+                    ) as response:
                         if response.status == 200:
                             data = await response.json()
-                            # New endpoint returns a list of options
                             if isinstance(data, list) and data:
                                 for option in data:
-                                    # Determine option type from contractType field
                                     opt_type = option.get("contractType", "").lower()
                                     if opt_type in ("call", "put"):
-                                        # Pass ticker explicitly (the option dict may not have it)
                                         flow = self._analyze_option(option, opt_type, ticker)
                                         if flow:
                                             flows.append(flow)
                                 logging.info(f"✅ FMP options: {len(flows)} items for {ticker}")
-                                return flows   # success, return early
+                                return flows
                             else:
-                                logging.debug(f"FMP returned no data or unexpected format for {ticker}")
+                                logging.debug(f"FMP returned no data for {ticker}")
             except asyncio.TimeoutError:
                 logging.debug(f"FMP options timeout for {ticker}")
             except Exception as e:
-                logging.debug(f"FMP options error (fallback triggered): {e}")
+                logging.debug(f"FMP options error: {e}")
 
-        # --- Fallback to yfinance if FMP failed or returned no data ---
-        logging.info(f"📡 Falling back to yfinance for options data on {ticker}")
-        yf_flows = await self._fetch_options_from_yfinance(ticker)
-        if yf_flows:
-            flows.extend(yf_flows)
-            logging.info(f"✅ yfinance options: {len(yf_flows)} items for {ticker}")
+        # Fallback to yfinance
+        if self.config.use_alternative:
+            logging.info(f"📡 Falling back to yfinance for options data on {ticker}")
+            yf_flows = await self._fetch_options_from_yfinance(ticker)
+            if yf_flows:
+                flows.extend(yf_flows)
+                logging.info(f"✅ yfinance options: {len(yf_flows)} items for {ticker}")
 
         return flows
 
     async def _fetch_options_from_yfinance(self, ticker: str) -> List[Dict]:
-        """Fetch options data using yfinance (runs in thread pool) and analyze."""
+        """Fetch options data using yfinance (runs in thread pool)."""
         loop = asyncio.get_event_loop()
 
         def _get_options_blocking():
@@ -182,12 +202,11 @@ class OptionsFlowClient:
 
                 # Process calls
                 for opt in chain.calls.to_dict('records'):
-                    # Add required fields that yfinance might omit
                     opt["symbol"] = ticker
                     opt["expirationDate"] = expirations[0]
                     analyzed = self._analyze_option(opt, "call", ticker)
                     if analyzed:
-                        analyzed["source"] = "yfinance"   # override source
+                        analyzed["source"] = Source.YAHOO_FINANCE
                         flows.append(analyzed)
 
                 # Process puts
@@ -196,7 +215,7 @@ class OptionsFlowClient:
                     opt["expirationDate"] = expirations[0]
                     analyzed = self._analyze_option(opt, "put", ticker)
                     if analyzed:
-                        analyzed["source"] = "yfinance"
+                        analyzed["source"] = Source.YAHOO_FINANCE
                         flows.append(analyzed)
 
                 return flows
@@ -207,7 +226,7 @@ class OptionsFlowClient:
         try:
             flows = await asyncio.wait_for(
                 loop.run_in_executor(None, _get_options_blocking),
-                timeout=10.0
+                timeout=self.config.timeout_seconds
             )
             return flows
         except asyncio.TimeoutError:
@@ -217,16 +236,10 @@ class OptionsFlowClient:
             logging.warning(f"⚠️ yfinance options exception: {e}")
             return []
 
-    # ----------------------------------------------------------------------
-    # FIXED: Safer number conversion and explicit ticker parameter
-    # ----------------------------------------------------------------------
     def _analyze_option(self, option: Dict, option_type: str, ticker: str = "") -> Optional[Dict]:
-        """
-        Analyze a single option for unusual activity.
-        Handles NaN/None values gracefully and adds title/content for display.
-        """
+        """Analyze a single option for unusual activity."""
         try:
-            # Safely extract values using helper methods
+            # Safely extract values
             strike = self._safe_float(option.get("strike"))
             expiration = option.get("expirationDate", "")
 
@@ -235,14 +248,13 @@ class OptionsFlowClient:
             last_price = self._safe_float(option.get("lastPrice"))
             implied_volatility = self._safe_float(option.get("impliedVolatility"))
 
-            # Use provided ticker or fallback to option dict
             ticker = ticker or option.get("symbol", "")
 
             # Calculate premium
-            premium = volume * last_price * 100  # Each contract is 100 shares
+            premium = volume * last_price * OptionFlowThresholds.CONTRACT_MULTIPLIER
 
-            # Calculate volume ratio (rough estimate)
-            avg_volume = max(open_interest * 0.1, 1)  # avoid division by zero
+            # Calculate volume ratio
+            avg_volume = max(open_interest * 0.1, 1)
             volume_ratio = volume / avg_volume if avg_volume > 0 else 0
 
             # Determine if unusual
@@ -251,12 +263,12 @@ class OptionsFlowClient:
                 premium > self.premium_threshold
             )
 
-            # Calculate significance score (0-100)
+            # Calculate significance score
             significance = 0.0
             if is_unusual:
                 significance = min(100.0, (
                     volume_ratio * 20 +
-                    (premium / 100000) * 30 +
+                    (premium / self.premium_threshold) * 30 +
                     (implied_volatility * 20)
                 ))
 
@@ -290,20 +302,17 @@ class OptionsFlowClient:
                 "implied_volatility": implied_volatility,
                 "is_unusual": is_unusual,
                 "significance_score": significance,
-                "source": "fmp",  # will be overridden in yfinance branch
+                "source": Source.FMP,
                 "timestamp": datetime.now().isoformat(),
-                # New fields for display/enrichment
                 "title": title,
                 "content": content,
-                "relevance_score": 1.0 if is_unusual else 0.5  # default, enricher may override
+                "relevance_score": 1.0 if is_unusual else 0.5,
+                "type": "option_flow"
             }
         except Exception as e:
             logging.debug(f"Option analysis error: {e}")
             return None
 
-    # ----------------------------------------------------------------------
-    # NEW: Safe number conversion helpers
-    # ----------------------------------------------------------------------
     @staticmethod
     def _safe_float(value, default=0.0):
         """Convert value to float, return default on failure."""
@@ -321,36 +330,18 @@ class OptionsFlowClient:
         if value is None:
             return default
         try:
-            # Handle float strings like "100.0"
             if isinstance(value, float) and value.is_integer():
                 return int(value)
-            return int(float(value))  # in case value is "100.0"
+            return int(float(value))
         except (ValueError, TypeError):
             return default
 
-    # ----------------------------------------------------------------------
-    # Legacy helper kept for compatibility (not used internally now)
-    # ----------------------------------------------------------------------
-    @staticmethod
-    def _is_nan(value):
-        """Legacy method – prefer _safe_float / _safe_int."""
-        try:
-            return math.isnan(float(value))
-        except:
-            return False
-
     def _filter_unusual(self, flows: List[Dict]) -> List[Dict]:
-        """Filter for unusual options activity"""
-        unusual = []
-
-        for flow in flows:
-            if flow.get("is_unusual"):
-                unusual.append(flow)
-
-        return unusual
+        """Filter for unusual options activity."""
+        return [flow for flow in flows if flow.get("is_unusual")]
 
     def _calculate_metrics(self, all_flows: List[Dict], unusual_flows: List[Dict]) -> Dict[str, Any]:
-        """Calculate aggregate options metrics"""
+        """Calculate aggregate options metrics."""
         if not all_flows:
             return {}
 
@@ -382,15 +373,20 @@ class OptionsFlowClient:
         }
 
     async def _rate_limit(self):
-        """Rate limiting"""
+        """Rate limiting."""
         now = datetime.now().timestamp()
 
         self.request_timestamps = [ts for ts in self.request_timestamps
-                                  if now - ts < 60]
+                                   if now - ts < RateLimit.WINDOW_SECONDS]
 
         if len(self.request_timestamps) >= self.rate_limit:
-            sleep_time = 60 - (now - self.request_timestamps[0])
+            sleep_time = RateLimit.WINDOW_SECONDS - (now - self.request_timestamps[0])
             if sleep_time > 0:
                 await asyncio.sleep(sleep_time)
 
         self.request_timestamps.append(now)
+
+    async def clear_cache(self) -> None:
+        """Clear all caches."""
+        self.cache.clear()
+        logging.info("🧹 Options flow cache cleared")
