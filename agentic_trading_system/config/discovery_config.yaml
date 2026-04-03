@@ -53,9 +53,8 @@ social_config:
 sec_config:
   user_agent: "TradingBot/1.0 (your-email@example.com)"
   rate_limit: 5
-  cache_ttl_hours: 24
+  cache_ttl_minutes: 1440  # 24 hours in minutes (changed from cache_ttl_hours)
   filing_types: ["10-K", "10-Q", "8-K", "4", "13F-HR"]
-  # Add CIK mapping for common tickers
   known_ciks:
     AAPL: "0000320193"
     MSFT: "0000789019"
@@ -83,7 +82,7 @@ options_config:
 macro_config:
   fred_api_key: ${FRED_API_KEY}
   rate_limit: 20
-  cache_ttl_hours: 24
+  cache_ttl_minutes: 1440  
   indicators:
     gdp:
       fred: "GDP"

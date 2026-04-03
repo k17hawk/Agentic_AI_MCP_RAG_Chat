@@ -1,14 +1,9 @@
-# =============================================================================
-# discovery/config/config_entity.py
-# =============================================================================
-"""
-Configuration entities for the discovery package.
-Typed dataclasses defining required and optional configuration.
-"""
+
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Set
 from enum import Enum
+from datetime import datetime
 
 
 # =============================================================================
@@ -35,6 +30,8 @@ class TimeFilter(str, Enum):
     MONTH = "month"
     YEAR = "year"
     ALL = "all"
+
+
 
 
 # =============================================================================
@@ -94,25 +91,7 @@ class NewsAPIConfig(BaseConfig):
         self.rate_limit = 30
 
 
-@dataclass
-class SocialMediaConfig(BaseConfig):
-    """Social media configuration."""
-    twitter_bearer_token: Optional[str] = None
-    reddit_user_agent: str = "TradingBot/1.0"
-    reddit_limit: int = 100
-    reddit_time_filter: TimeFilter = TimeFilter.WEEK
-    reddit_subreddits: List[str] = field(default_factory=lambda: [
-        "wallstreetbets", "stocks", "investing", "stockmarket", "options"
-    ])
-    reddit_comment_limit: int = 10
-    reddit_sort: str = "relevance"
-    stocktwits_limit: int = 30
-    platforms: List[str] = field(default_factory=lambda: ["reddit", "stocktwits"])
-    lookback_hours: int = 24
-    request_delay: float = 2.0
-    
-    def __post_init__(self):
-        self.rate_limit = 20
+
 
 
 @dataclass
@@ -124,10 +103,53 @@ class SECFilingsConfig(BaseConfig):
         "10-K", "10-Q", "8-K", "4", "13F-HR"
     ])
     known_ciks: Dict[str, str] = field(default_factory=dict)
+    cache_ttl_hours: int = 24  # Changed from cache_ttl_minutes
     
     def __post_init__(self):
         self.rate_limit = 5  # SEC requires slower rate
+        # Convert hours to minutes for internal use if needed
+        self.cache_ttl_minutes = self.cache_ttl_hours * 60
 
+
+
+@dataclass
+class RedditConfig:
+    """Reddit-specific configuration."""
+    user_agent: str = "TradingBot/1.0"
+    limit: int = 100
+    time_filter: str = "week"
+    subreddits: List[str] = field(default_factory=lambda: [
+        "wallstreetbets", "stocks", "investing", "stockmarket", "options"
+    ])
+    comment_limit: int = 10
+    sort: str = "relevance"
+
+
+@dataclass
+class StockTwitsConfig:
+    """StockTwits-specific configuration."""
+    limit: int = 30
+
+
+
+@dataclass
+class SocialMediaConfig(BaseConfig):
+    """Social media configuration."""
+    twitter_bearer_token: Optional[str] = None
+    
+    # Nested configs
+    reddit: RedditConfig = field(default_factory=RedditConfig)
+    stocktwits: StockTwitsConfig = field(default_factory=StockTwitsConfig)
+    
+    # Platform settings
+    platforms: List[str] = field(default_factory=lambda: ["reddit", "stocktwits"])
+    lookback_hours: int = 24
+    request_delay: float = 2.0
+    
+    def __post_init__(self):
+        self.rate_limit = 20
+        self.cache_ttl_minutes = 10
+        self.timeout_seconds = 10
 
 @dataclass
 class OptionsFlowConfig(BaseConfig):
@@ -175,9 +197,6 @@ class RegexExtractorConfig:
     ])
 
 
-# =============================================================================
-# Enricher Configuration
-# =============================================================================
 @dataclass
 class EnricherConfig:
     """Data enricher configuration."""
@@ -186,10 +205,6 @@ class EnricherConfig:
     price_source: str = "yahoo"
     fundamentals_source: str = "sec"
 
-
-# =============================================================================
-# Main Discovery Configuration
-# =============================================================================
 @dataclass
 class DiscoveryConfig:
     """Main discovery configuration."""
@@ -211,6 +226,8 @@ class DiscoveryConfig:
     # General settings
     max_workers: int = 5
     cache_ttl_minutes: int = 15
+    
+    # Source weights - MUST be instance attribute with default_factory
     source_weights: Dict[str, float] = field(default_factory=lambda: {
         "tavily": 0.25,
         "news": 0.20,
@@ -220,10 +237,21 @@ class DiscoveryConfig:
         "macro": 0.10
     })
     
+    # Version tracking
+    config_version: str = "1.0.0"
+    config_created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    
+    # Storage settings
+    save_to_memory: bool = False
+    output_dir: str = "discovery_outputs"
+    
     # Rate limit monitoring
     rate_limit_monitoring_enabled: bool = True
     rate_limit_alert_threshold: float = 0.8
     rate_limit_cooldown_minutes: int = 60
+    
+    # REMOVE this - it's causing the error (class attribute shadowing)
+    # DEFAULT_SOURCE_WEIGHTS = { ... }  # DELETE THIS LINE
     
     @classmethod
     def from_yaml(cls, yaml_config: Dict[str, Any]) -> "DiscoveryConfig":
@@ -242,6 +270,16 @@ class DiscoveryConfig:
         regex_cfg = RegexExtractorConfig(**discovery_cfg.get("regex_config", {}))
         enricher_cfg = EnricherConfig(**discovery_cfg.get("enricher_config", {}))
         
+        # Get source weights from YAML or use default
+        source_weights = discovery_cfg.get("source_weights", {
+            "tavily": 0.25,
+            "news": 0.20,
+            "social": 0.15,
+            "sec": 0.15,
+            "options": 0.15,
+            "macro": 0.10
+        })
+        
         return cls(
             tavily=tavily_cfg,
             news=news_cfg,
@@ -254,25 +292,11 @@ class DiscoveryConfig:
             enricher=enricher_cfg,
             max_workers=discovery_cfg.get("max_workers", 5),
             cache_ttl_minutes=discovery_cfg.get("cache_ttl_minutes", 15),
-            source_weights=discovery_cfg.get("source_weights", cls.source_weights),
+            source_weights=source_weights,  # Pass as instance attribute
+            config_version=discovery_cfg.get("config_version", "1.0.0"),
+            save_to_memory=discovery_cfg.get("save_to_memory", False),
+            output_dir=discovery_cfg.get("output_dir", "discovery_outputs"),
             rate_limit_monitoring_enabled=discovery_cfg.get("rate_limit_monitoring", {}).get("enabled", True),
             rate_limit_alert_threshold=discovery_cfg.get("rate_limit_monitoring", {}).get("alert_threshold", 0.8),
             rate_limit_cooldown_minutes=discovery_cfg.get("rate_limit_monitoring", {}).get("cooldown_minutes", 60)
         )
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "tavily_config": self.tavily.__dict__,
-            "news_config": self.news.__dict__,
-            "social_config": self.social.__dict__,
-            "sec_config": self.sec.__dict__,
-            "options_config": self.options.__dict__,
-            "macro_config": self.macro.__dict__,
-            "nlp_config": self.nlp.__dict__,
-            "regex_config": self.regex.__dict__,
-            "enricher_config": self.enricher.__dict__,
-            "max_workers": self.max_workers,
-            "cache_ttl_minutes": self.cache_ttl_minutes,
-            "source_weights": self.source_weights
-        }

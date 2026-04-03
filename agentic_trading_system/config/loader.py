@@ -1,5 +1,5 @@
 # =============================================================================
-# discovery/config/loader.py
+# discovery/config/loader.py (FIXED)
 # =============================================================================
 """
 Configuration loader for discovery package.
@@ -15,9 +15,10 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Import config entities
+# Import config entities – ensure correct absolute import
 from agentic_trading_system.config.config__entity import (
     DiscoveryConfig,
+    StockTwitsConfig,
     TavilyConfig,
     NewsAPIConfig,
     SocialMediaConfig,
@@ -26,34 +27,30 @@ from agentic_trading_system.config.config__entity import (
     MacroDataConfig,
     NLPExtractorConfig,
     RegexExtractorConfig,
-    EnricherConfig
+    EnricherConfig,
+    RedditConfig
 )
 
-# Import constants
-from agentic_trading_system.constants import SearchDepth, TimeFilter, SearchType, RateLimit, CacheTTL
-# =============================================================================
-# discovery/config/loader.py (UPDATED - fix imports)
-# =============================================================================
-"""
-Configuration loader for discovery package.
-Loads configuration from YAML files and environment variables.
-"""
-
-import os
-import re
-from pathlib import Path
-from typing import Dict, Any, Optional, Union
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
-
+# Import constants (needed for defaults)
+from agentic_trading_system.constants import (
+    SearchDepth, TimeFilter, RateLimit, CacheTTL
+)
 
 
 class DiscoveryConfigLoader:
     """
     Loads discovery configuration from YAML files and environment variables.
     """
+    
+    # Default source weights (centralized to avoid duplication)
+    DEFAULT_SOURCE_WEIGHTS = {
+        "tavily": 0.25,
+        "news": 0.20,
+        "social": 0.15,
+        "sec": 0.15,
+        "options": 0.15,
+        "macro": 0.10
+    }
     
     def __init__(self, config_dir: Optional[Union[str, Path]] = None):
         """
@@ -75,7 +72,7 @@ class DiscoveryConfigLoader:
         self.config_dir = Path(config_dir)
         self._config_cache: Optional[DiscoveryConfig] = None
         
-    def load(self, config_file: str = "discovery_config.yaml") -> DiscoveryConfig:
+    def load(self, config_file: Path = "agentic_trading_system/config/discovery_config.yaml") -> DiscoveryConfig:
         """
         Load discovery configuration.
         
@@ -153,62 +150,62 @@ class DiscoveryConfigLoader:
         Returns:
             DiscoveryConfig object
         """
-        # Get discovery_config section
+        # Get discovery_config section (handle both top-level and nested)
         discovery_cfg = yaml_config.get("discovery_config", {})
+        if not discovery_cfg:
+            # If no discovery_config key, assume the whole YAML is the config
+            discovery_cfg = yaml_config
         
-        # Build Tavily config
+        # Build all sub-configs
         tavily_config = self._build_tavily_config(discovery_cfg.get("tavily_config", {}))
-        
-        # Build News config
         news_config = self._build_news_config(discovery_cfg.get("news_config", {}))
-        
-        # Build Social config
         social_config = self._build_social_config(discovery_cfg.get("social_config", {}))
-        
-        # Build SEC config
         sec_config = self._build_sec_config(discovery_cfg.get("sec_config", {}))
-        
-        # Build Options config
         options_config = self._build_options_config(discovery_cfg.get("options_config", {}))
-        
-        # Build Macro config
         macro_config = self._build_macro_config(discovery_cfg.get("macro_config", {}))
-        
-        # Build NLP config
         nlp_config = self._build_nlp_config(discovery_cfg.get("nlp_config", {}))
-        
-        # Build Regex config
         regex_config = self._build_regex_config(discovery_cfg.get("regex_config", {}))
-        
-        # Build Enricher config
         enricher_config = self._build_enricher_config(discovery_cfg.get("enricher_config", {}))
         
-        # Build main config
-        return DiscoveryConfig(
-            tavily=tavily_config,
-            news=news_config,
-            social=social_config,
-            sec=sec_config,
-            options=options_config,
-            macro=macro_config,
-            nlp=nlp_config,
-            regex=regex_config,
-            enricher=enricher_config,
-            max_workers=discovery_cfg.get("max_workers", 5),
-            cache_ttl_minutes=discovery_cfg.get("cache_ttl_minutes", 15),
-            source_weights=discovery_cfg.get("source_weights", {
-                "tavily": 0.25,
-                "news": 0.20,
-                "social": 0.15,
-                "sec": 0.15,
-                "options": 0.15,
-                "macro": 0.10
-            }),
-            rate_limit_monitoring_enabled=discovery_cfg.get("rate_limit_monitoring", {}).get("enabled", True),
-            rate_limit_alert_threshold=discovery_cfg.get("rate_limit_monitoring", {}).get("alert_threshold", 0.8),
-            rate_limit_cooldown_minutes=discovery_cfg.get("rate_limit_monitoring", {}).get("cooldown_minutes", 60)
-        )
-    
+        # Get source weights from YAML or use default
+        source_weights = discovery_cfg.get("source_weights", self.DEFAULT_SOURCE_WEIGHTS.copy())
+        
+        # Ensure all expected sources have weights (fallback to default)
+        for source in ["tavily", "news", "social", "sec", "options", "macro"]:
+            if source not in source_weights:
+                source_weights[source] = self.DEFAULT_SOURCE_WEIGHTS.get(source, 0.1)
+        
+        # Build main config with explicit parameters
+        try:
+            config = DiscoveryConfig(
+                tavily=tavily_config,
+                news=news_config,
+                social=social_config,
+                sec=sec_config,
+                options=options_config,
+                macro=macro_config,
+                nlp=nlp_config,
+                regex=regex_config,
+                enricher=enricher_config,
+                max_workers=discovery_cfg.get("max_workers", 5),
+                cache_ttl_minutes=discovery_cfg.get("cache_ttl_minutes", 15),
+                source_weights=source_weights,
+                config_version=discovery_cfg.get("config_version", "1.0.0"),
+                save_to_memory=discovery_cfg.get("save_to_memory", False),
+                output_dir=discovery_cfg.get("output_dir", "discovery_outputs"),
+                rate_limit_monitoring_enabled=discovery_cfg.get("rate_limit_monitoring", {}).get("enabled", True),
+                rate_limit_alert_threshold=discovery_cfg.get("rate_limit_monitoring", {}).get("alert_threshold", 0.8),
+                rate_limit_cooldown_minutes=discovery_cfg.get("rate_limit_monitoring", {}).get("cooldown_minutes", 60)
+            )
+        except TypeError as e:
+            # If the DiscoveryConfig class is missing a field, raise a clear error
+            raise RuntimeError(
+                f"DiscoveryConfig class is missing a required field. "
+                f"Make sure config__entity.py has all expected fields. Error: {e}"
+            )
+        
+        return config
+
     def _build_tavily_config(self, cfg: Dict[str, Any]) -> TavilyConfig:
         """Build Tavily configuration."""
         search_depth = cfg.get("search_depth", "basic")
@@ -254,31 +251,30 @@ class DiscoveryConfigLoader:
     
     def _build_social_config(self, cfg: Dict[str, Any]) -> SocialMediaConfig:
         """Build Social Media configuration."""
+        # Build nested configs
         reddit_cfg = cfg.get("reddit", {})
         stocktwits_cfg = cfg.get("stocktwits", {})
         
-        # Handle time filter
-        time_filter = reddit_cfg.get("time_filter", "week")
-        if isinstance(time_filter, str):
-            try:
-                time_filter_enum = TimeFilter(time_filter)
-            except ValueError:
-                time_filter_enum = TimeFilter.WEEK
-        else:
-            time_filter_enum = TimeFilter.WEEK
+        reddit_config = RedditConfig(
+            user_agent=reddit_cfg.get("user_agent", "TradingBot/1.0"),
+            limit=reddit_cfg.get("limit", 100),
+            time_filter=reddit_cfg.get("time_filter", "week"),
+            subreddits=reddit_cfg.get("subreddits", [
+                "wallstreetbets", "stocks", "investing", "stockmarket", "options"
+            ]),
+            comment_limit=reddit_cfg.get("comment_limit", 10),
+            sort=reddit_cfg.get("sort", "relevance")
+        )
+        
+        stocktwits_config = StockTwitsConfig(
+            limit=stocktwits_cfg.get("limit", 30)
+        )
         
         return SocialMediaConfig(
             enabled=cfg.get("enabled", True),
             twitter_bearer_token=cfg.get("twitter_bearer_token"),
-            reddit_user_agent=reddit_cfg.get("user_agent", "TradingBot/1.0"),
-            reddit_limit=reddit_cfg.get("limit", 100),
-            reddit_time_filter=time_filter_enum,
-            reddit_subreddits=reddit_cfg.get("subreddits", [
-                "wallstreetbets", "stocks", "investing", "stockmarket", "options"
-            ]),
-            reddit_comment_limit=reddit_cfg.get("comment_limit", 10),
-            reddit_sort=reddit_cfg.get("sort", "relevance"),
-            stocktwits_limit=stocktwits_cfg.get("limit", 30),
+            reddit=reddit_config,
+            stocktwits=stocktwits_config,
             platforms=cfg.get("platforms", ["reddit", "stocktwits"]),
             lookback_hours=cfg.get("lookback_hours", 24),
             request_delay=cfg.get("request_delay", 2.0),
@@ -286,9 +282,13 @@ class DiscoveryConfigLoader:
             cache_ttl_minutes=cfg.get("cache_ttl_minutes", CacheTTL.SOCIAL // 60),
             timeout_seconds=cfg.get("timeout_seconds", 10)
         )
-    
+
     def _build_sec_config(self, cfg: Dict[str, Any]) -> SECFilingsConfig:
         """Build SEC Filings configuration."""
+        # Handle cache_ttl_hours from YAML and convert to minutes
+        cache_ttl_hours = cfg.get("cache_ttl_hours", 24)
+        cache_ttl_minutes = cache_ttl_hours * 60
+        
         return SECFilingsConfig(
             enabled=cfg.get("enabled", True),
             user_agent=cfg.get("user_agent", "TradingBot/1.0"),
@@ -296,7 +296,7 @@ class DiscoveryConfigLoader:
             filing_types=cfg.get("filing_types", ["10-K", "10-Q", "8-K", "4", "13F-HR"]),
             known_ciks=cfg.get("known_ciks", {}),
             rate_limit=cfg.get("rate_limit", RateLimit.SEC_REQUESTS_PER_SECOND),
-            cache_ttl_minutes=cfg.get("cache_ttl_hours", 24) * 60,
+            cache_ttl_minutes=cache_ttl_minutes,
             timeout_seconds=cfg.get("timeout_seconds", 15)
         )
     
@@ -316,12 +316,15 @@ class DiscoveryConfigLoader:
     
     def _build_macro_config(self, cfg: Dict[str, Any]) -> MacroDataConfig:
         """Build Macro Data configuration."""
+        cache_ttl_hours = cfg.get("cache_ttl_hours", 24)
+        cache_ttl_minutes = cache_ttl_hours * 60
+        
         return MacroDataConfig(
             enabled=cfg.get("enabled", True),
             fred_api_key=cfg.get("fred_api_key"),
             indicators=cfg.get("indicators", {}),
             rate_limit=cfg.get("rate_limit", RateLimit.FRED_REQUESTS_PER_MINUTE),
-            cache_ttl_minutes=cfg.get("cache_ttl_hours", 24) * 60,
+            cache_ttl_minutes=cache_ttl_minutes,
             timeout_seconds=cfg.get("timeout_seconds", 15)
         )
     
@@ -353,7 +356,7 @@ class DiscoveryConfigLoader:
         )
     
     def _create_default_config(self) -> DiscoveryConfig:
-        """Create default configuration."""
+        """Create default configuration with all required fields."""
         print("📝 Creating default configuration...")
         
         # Default Tavily config
@@ -383,11 +386,12 @@ class DiscoveryConfigLoader:
         # Default Social config
         social = SocialMediaConfig(
             enabled=True,
-            reddit_user_agent="TradingBot/1.0",
-            reddit_limit=100,
-            reddit_time_filter=TimeFilter.WEEK,
-            reddit_subreddits=["wallstreetbets", "stocks", "investing"],
+            twitter_bearer_token=os.getenv("TWITTER_BEARER_TOKEN"),
+            reddit=RedditConfig(),
+            stocktwits=StockTwitsConfig(),
             platforms=["reddit", "stocktwits"],
+            lookback_hours=24,
+            request_delay=2.0,
             rate_limit=RateLimit.REDDIT_REQUESTS_PER_MINUTE,
             cache_ttl_minutes=CacheTTL.SOCIAL // 60
         )
@@ -421,6 +425,7 @@ class DiscoveryConfigLoader:
         regex = RegexExtractorConfig()
         enricher = EnricherConfig()
         
+        # Build and return DiscoveryConfig with explicit source_weights
         return DiscoveryConfig(
             tavily=tavily,
             news=news,
@@ -432,7 +437,14 @@ class DiscoveryConfigLoader:
             regex=regex,
             enricher=enricher,
             max_workers=5,
-            cache_ttl_minutes=15
+            cache_ttl_minutes=15,
+            source_weights=self.DEFAULT_SOURCE_WEIGHTS.copy(),
+            config_version="1.0.0",
+            save_to_memory=False,
+            output_dir="discovery_outputs",
+            rate_limit_monitoring_enabled=True,
+            rate_limit_alert_threshold=0.8,
+            rate_limit_cooldown_minutes=60
         )
     
     def reload(self) -> DiscoveryConfig:
@@ -514,8 +526,8 @@ def print_config_summary(config: Optional[DiscoveryConfig] = None) -> None:
     print(f"\n📱 Social Media:")
     print(f"   Enabled: {config.social.enabled}")
     print(f"   Platforms: {', '.join(config.social.platforms)}")
-    print(f"   Reddit Subreddits: {len(config.social.reddit_subreddits)}")
-    print(f"   Reddit Time Filter: {config.social.reddit_time_filter}")
+    print(f"   Reddit Subreddits: {len(config.social.reddit.subreddits)}")
+    print(f"   Reddit Time Filter: {config.social.reddit.time_filter}")
     
     # SEC
     print(f"\n📄 SEC Filings:")
@@ -538,6 +550,7 @@ def print_config_summary(config: Optional[DiscoveryConfig] = None) -> None:
     print(f"\n⚙️ General:")
     print(f"   Max Workers: {config.max_workers}")
     print(f"   Cache TTL: {config.cache_ttl_minutes} minutes")
+    print(f"   Source Weights: {config.source_weights}")
     
     print("=" * 60)
 

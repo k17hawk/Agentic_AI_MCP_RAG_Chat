@@ -1,15 +1,11 @@
-# =============================================================================
-# discovery/artifact/artifact_entity.py
-# =============================================================================
-"""
-Artifact entities for the discovery package.
-Typed output classes for each component and final pipeline output.
-"""
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 from enum import Enum
+import json
+import os
+from pathlib import Path
 
 
 # =============================================================================
@@ -21,6 +17,14 @@ class BaseArtifact:
     timestamp: datetime = field(default_factory=datetime.now)
     source: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "timestamp": self.timestamp.isoformat(),
+            "source": self.source,
+            "metadata": self.metadata
+        }
 
 
 @dataclass
@@ -182,9 +186,11 @@ class EnrichedItemArtifact(SearchResultItem):
 @dataclass
 class DiscoveryArtifact(BaseArtifact):
     """Complete discovery pipeline output."""
+    run_id: str = ""
     query: str = ""
     total_items: int = 0
     unique_items: int = 0
+    config_version: str = ""
     
     # Source results
     source_results: Dict[str, SourceResult] = field(default_factory=dict)
@@ -204,13 +210,20 @@ class DiscoveryArtifact(BaseArtifact):
     # Options used
     options_used: Dict[str, Any] = field(default_factory=dict)
     
+    def __post_init__(self):
+        """Generate run_id if not provided."""
+        if not self.run_id:
+            self.run_id = self.timestamp.strftime("%Y%m%d_%H%M%S")
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
+            "run_id": self.run_id,
             "query": self.query,
             "timestamp": self.timestamp.isoformat(),
             "total_items": self.total_items,
             "unique_items": self.unique_items,
+            "config_version": self.config_version,
             "response_time_ms": self.response_time_ms,
             "sources_queried": self.sources_queried,
             "sources_succeeded": self.sources_succeeded,
@@ -224,6 +237,95 @@ class DiscoveryArtifact(BaseArtifact):
             "options_used": self.options_used,
             "metadata": self.metadata
         }
+    
+    def save(self, output_dir: Path) -> Path:
+        """
+        Save artifact to disk with timestamp-based directory structure.
+        
+        Args:
+            output_dir: Base output directory
+            
+        Returns:
+            Path to saved artifact directory
+        """
+        # Create run directory
+        run_dir = output_dir / f"{self.run_id}_{self.query}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save main artifact
+        artifact_file = run_dir / "artifact.json"
+        with open(artifact_file, "w") as f:
+            json.dump(self.to_dict(), f, indent=2, default=str)
+        
+        # Save metadata separately
+        metadata = {
+            "run_id": self.run_id,
+            "query": self.query,
+            "timestamp": self.timestamp.isoformat(),
+            "config_version": self.config_version,
+            "sources_succeeded": self.sources_succeeded,
+            "sources_failed": self.sources_failed,
+            "total_items": self.unique_items,
+            "response_time_ms": self.response_time_ms
+        }
+        
+        metadata_file = run_dir / "metadata.json"
+        with open(metadata_file, "w") as f:
+            json.dump(metadata, f, indent=2)
+        
+        # Save entities separately for easy access
+        entities_file = run_dir / "entities.json"
+        with open(entities_file, "w") as f:
+            json.dump(self.entities.to_dict(), f, indent=2)
+        
+        # Save per-source raw data
+        sources_dir = run_dir / "sources"
+        sources_dir.mkdir(exist_ok=True)
+        
+        for source_name, source_result in self.source_results.items():
+            source_file = sources_dir / f"{source_name}.json"
+            with open(source_file, "w") as f:
+                json.dump(source_result.to_dict(), f, indent=2)
+        
+        return run_dir
+    
+    @classmethod
+    def load(cls, run_dir: Path) -> "DiscoveryArtifact":
+        """
+        Load artifact from disk.
+        
+        Args:
+            run_dir: Directory containing saved artifact
+            
+        Returns:
+            Loaded DiscoveryArtifact
+        """
+        artifact_file = run_dir / "artifact.json"
+        
+        if not artifact_file.exists():
+            raise FileNotFoundError(f"Artifact not found: {artifact_file}")
+        
+        with open(artifact_file, "r") as f:
+            data = json.load(f)
+        
+        # Reconstruct from dict
+        # This would need proper deserialization logic
+        # For now, we'll return a basic artifact
+        
+        artifact = cls(
+            run_id=data.get("run_id", ""),
+            query=data.get("query", ""),
+            timestamp=datetime.fromisoformat(data.get("timestamp", datetime.now().isoformat())),
+            total_items=data.get("total_items", 0),
+            unique_items=data.get("unique_items", 0),
+            config_version=data.get("config_version", ""),
+            response_time_ms=data.get("response_time_ms", 0),
+            sources_queried=data.get("sources_queried", []),
+            sources_succeeded=data.get("sources_succeeded", []),
+            sources_failed=data.get("sources_failed", [])
+        )
+        
+        return artifact
     
     def get_all_tickers(self) -> List[str]:
         """Get all unique tickers from all sources."""
@@ -240,3 +342,18 @@ class DiscoveryArtifact(BaseArtifact):
     def get_items_by_source(self, source: str) -> List[EnrichedItemArtifact]:
         """Filter items by source."""
         return [item for item in self.items if item.source == source]
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """Get summary statistics."""
+        return {
+            "run_id": self.run_id,
+            "query": self.query,
+            "timestamp": self.timestamp.isoformat(),
+            "total_items": self.unique_items,
+            "sources_succeeded": len(self.sources_succeeded),
+            "sources_failed": len(self.sources_failed),
+            "response_time_ms": self.response_time_ms,
+            "unique_tickers": len(self.get_all_tickers()),
+            "unique_companies": len(set(self.entities.companies)),
+            "content_types": list(set(item.content_type for item in self.items))
+        }

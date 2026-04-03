@@ -1,12 +1,19 @@
+import sys
+import os
+from pathlib import Path
+
+_project_root = Path(__file__).resolve().parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+# Now imports will work
 import asyncio
 import time
-from typing import Dict, List, Optional, Any, Callable
-from datetime import datetime
-from dataclasses import asdict
+from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta, timezone
 
 from agentic_trading_system.utils.logger import logger as logging
-
-from agentic_trading_system.constants import Source, SearchType, ScoringWeights,EntityExtraction
+from agentic_trading_system.constants import Source, SearchType, ScoringWeights, EntityExtraction
 from agentic_trading_system.config.config__entity import DiscoveryConfig
 from agentic_trading_system.config.artifact_enity import (
     DiscoveryArtifact,
@@ -27,22 +34,9 @@ from agentic_trading_system.discovery.entity_extractor.nlp_extractor import NLPE
 from agentic_trading_system.discovery.entity_extractor.regex_extractor import RegexExtractor
 from agentic_trading_system.discovery.data_enricher import DataEnricher
 
-"""
-Discovery Pipeline - Orchestrates all discovery components in parallel.
-Single entry point for running the entire discovery process.
-"""
-
-import asyncio
-import time
-import os
-import sys
-from typing import Dict, List, Optional, Any, Callable
-from datetime import datetime, timedelta, timezone
-from dataclasses import asdict
-from pathlib import Path
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from agentic_trading_system.config.loader import get_discovery_config as get_config_object
+    
+    
 
 class DiscoveryPipeline:
     """
@@ -251,7 +245,7 @@ class DiscoveryPipeline:
                 logging.info(f"📦 Using cached discovery results for '{query}'")
                 return cached_result
         
-        # Determine which sources to query
+        # Determine which sources to query - RUN ALL AVAILABLE SOURCES
         sources_to_query = self._get_sources_to_query(options)
         
         # Query all sources in parallel
@@ -290,6 +284,7 @@ class DiscoveryPipeline:
             sources_failed=[s for s, r in source_results.items() if r.status == "error"],
             options_used=options,
             timestamp=datetime.now(),
+            config_version=self.config.config_version,
             metadata={
                 "search_type": options.get("search_type", SearchType.GENERAL),
                 "max_results": options.get("max_results", 50)
@@ -408,7 +403,8 @@ class DiscoveryPipeline:
     
     def _get_sources_to_query(self, options: Dict[str, Any]) -> List[str]:
         """
-        Determine which sources to query based on options.
+        Determine which sources to query.
+        By default, queries ALL available sources.
         
         Args:
             options: Search options
@@ -416,26 +412,25 @@ class DiscoveryPipeline:
         Returns:
             List of source names
         """
-        all_sources = list(self._clients.keys())
-        
-        # If specific sources requested
+        # If specific sources requested, use those
         if "sources" in options:
             requested = options["sources"]
-            return [s for s in all_sources if s in requested]
+            return [s for s in requested if s in self._clients]
         
-        # If search type specified
+        # If search type specified, use that mapping
         search_type = options.get("search_type", SearchType.GENERAL)
         
         search_type_mapping = {
-            SearchType.GENERAL: all_sources,
-            SearchType.NEWS: [s for s in all_sources if s in [Source.NEWS, Source.TAVILY]],
-            SearchType.SOCIAL: [s for s in all_sources if s in [Source.SOCIAL, Source.TAVILY]],
-            SearchType.FUNDAMENTAL: [s for s in all_sources if s in [Source.SEC, Source.NEWS, Source.TAVILY]],
-            SearchType.TECHNICAL: [s for s in all_sources if s in [Source.OPTIONS, Source.NEWS, Source.TAVILY]],
-            SearchType.MACRO: [s for s in all_sources if s in [Source.MACRO, Source.NEWS, Source.TAVILY]]
+            SearchType.GENERAL: list(self._clients.keys()),  # ALL SOURCES
+            SearchType.NEWS: [s for s in self._clients.keys() if s in [Source.NEWS, Source.TAVILY]],
+            SearchType.SOCIAL: [s for s in self._clients.keys() if s in [Source.SOCIAL, Source.TAVILY]],
+            SearchType.FUNDAMENTAL: [s for s in self._clients.keys() if s in [Source.SEC, Source.NEWS, Source.TAVILY]],
+            SearchType.TECHNICAL: [s for s in self._clients.keys() if s in [Source.OPTIONS, Source.NEWS, Source.TAVILY]],
+            SearchType.MACRO: [s for s in self._clients.keys() if s in [Source.MACRO, Source.NEWS, Source.TAVILY]]
         }
         
-        return search_type_mapping.get(search_type, all_sources)
+        # Default to ALL sources if mapping doesn't exist
+        return search_type_mapping.get(search_type, list(self._clients.keys()))
     
     def _deduplicate_items(self, items: List[SearchResultItem]) -> List[SearchResultItem]:
         """
@@ -751,38 +746,154 @@ class DiscoveryPipeline:
         }
 
 
-# =============================================================================
-# Convenience function for direct use
-# =============================================================================
-
-async def quick_discover(
-    query: str,
-    config: DiscoveryConfig,
-    search_type: str = SearchType.GENERAL,
-    max_results: int = 20
-) -> DiscoveryArtifact:
-    """
-    Quick discovery function for direct use.
+async def _run_single_ticker(ticker: str, output_dir: Path) -> DiscoveryArtifact:
+    """Run discovery for a single ticker."""
+    print(f"\n🔍 Running discovery for: {ticker}")
     
-    Args:
-        query: Search query
-        config: Discovery configuration
-        search_type: Type of search (general, news, social, etc.)
-        max_results: Maximum number of results
-        
-    Returns:
-        DiscoveryArtifact with results
-    """
+
+    # This returns a DiscoveryConfig object directly
+    config = get_config_object()
+    
+    # Create pipeline
     pipeline = DiscoveryPipeline(config)
     
-    try:
-        result = await pipeline.run(
-            query=query,
-            options={
-                "search_type": search_type,
-                "max_results": max_results
-            }
-        )
-        return result
-    finally:
-        await pipeline.clear_cache()
+    # Run discovery
+    start_time = time.time()
+    
+    artifact = await pipeline.run(
+        query=ticker,
+        options={
+            "search_type": "general",
+            "max_results": 50
+        }
+    )
+    
+    elapsed = time.time() - start_time
+    
+    # Save results
+    output_path = artifact.save(output_dir)
+    
+    # Print summary
+    print(f"\n{'='*70}")
+    print(f" RESULTS - {ticker}")
+    print(f"{'='*70}")
+    
+    print(f"\n✅ Complete in {elapsed:.2f}s")
+    print(f"📈 Run ID: {artifact.run_id}")
+    print(f"🔧 Config Version: {artifact.config_version}")
+    print(f"📄 Unique items: {artifact.unique_items} from {len(artifact.sources_succeeded)} sources")
+    
+    if artifact.entities.tickers:
+        print(f"\n🏷️  Tickers detected: {', '.join(artifact.entities.tickers[:10])}")
+    
+    if artifact.entities.companies:
+        print(f"🏢 Companies detected: {', '.join(artifact.entities.companies[:5])}")
+    
+    print(f"\n💾 Results saved to: {output_path}")
+    
+    return artifact
+
+
+async def _run_multiple_tickers(tickers: List[str], output_dir: Path) -> List[DiscoveryArtifact]:
+    """Run discovery for multiple tickers."""
+    print(f"\n{'='*70}")
+    print(f" RUNNING DISCOVERY FOR {len(tickers)} TICKERS")
+    print(f"{'='*70}")
+    
+    artifacts = []
+    
+    for i, ticker in enumerate(tickers, 1):
+        print(f"\n[{i}/{len(tickers)}] Processing {ticker}...")
+        print("-" * 50)
+        
+        try:
+            artifact = await _run_single_ticker(ticker, output_dir)
+            artifacts.append(artifact)
+        except Exception as e:
+            print(f"❌ Error processing {ticker}: {e}")
+        
+        # Small delay between tickers to avoid rate limiting
+        if i < len(tickers):
+            await asyncio.sleep(2)
+    
+    return artifacts
+
+
+def main():
+    """
+    Simple main function - runs with no input arguments.
+    
+    To change which tickers to run, modify the TICKERS list below.
+    - If single ticker: runs just that one
+    - If multiple tickers: runs all in sequence
+    
+    Default: ['AAPL', 'MSFT', 'TSLA'] - runs all three
+    """
+    
+    # ============================================================
+    # CONFIGURE YOUR TICKERS HERE
+    # ============================================================
+    # Single ticker example:
+    # TICKERS = ['AAPL']
+    
+    # Multiple tickers example:
+    TICKERS = ['AAPL', 'MSFT', 'TSLA']
+    
+
+    print("\n" + "=" * 70)
+    print(" DISCOVERY PIPELINE")
+    print("=" * 70)
+    print(f"\n📋 Tickers to process: {', '.join(TICKERS)}")
+    
+    # Setup output directory
+    output_dir = Path("discovery_outputs")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Run discovery
+    if len(TICKERS) == 1:
+        # Single ticker - run directly
+        artifact = asyncio.run(_run_single_ticker(TICKERS[0], output_dir))
+        
+        # Print final summary
+        print(f"\n{'='*70}")
+        print(" COMPLETE")
+        print(f"{'='*70}")
+        print(f"\n✅ Successfully processed: {TICKERS[0]}")
+        print(f"📁 Output directory: {output_dir}")
+        
+    else:
+        # Multiple tickers - run all
+        artifacts = asyncio.run(_run_multiple_tickers(TICKERS, output_dir))
+        
+        # Print final summary
+        print(f"\n{'='*70}")
+        print(" COMPLETE - SUMMARY")
+        print(f"{'='*70}")
+        
+        print(f"\n✅ Successfully processed: {len(artifacts)}/{len(TICKERS)} tickers")
+        
+        if artifacts:
+            print(f"\n📊 Summary Table:")
+            print(f"{'Ticker':<10} {'Items':<8} {'Sources':<8} {'Tickers Found':<15} {'Time':<8}")
+            print("-" * 60)
+            
+            for artifact in artifacts:
+                ticker = artifact.query
+                items = artifact.unique_items
+                sources = len(artifact.sources_succeeded)
+                tickers_found = len(artifact.entities.tickers)
+                time_ms = artifact.response_time_ms
+                print(f"{ticker:<10} {items:<8} {sources:<8} {tickers_found:<15} {time_ms/1000:<8.1f}s")
+        
+        print(f"\n📁 All results saved to: {output_dir}")
+    
+    print(f"\n{'='*70}")
+
+
+if __name__ == "__main__":
+    """
+    Direct execution - just run: python discovery_pipeline.py
+    
+    To change tickers, modify the TICKERS list in main() above.
+    """
+    main()

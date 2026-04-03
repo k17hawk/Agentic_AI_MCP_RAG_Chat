@@ -1,9 +1,3 @@
-# =============================================================================
-# discovery/social_media_client.py (UPDATED)
-# =============================================================================
-"""
-Social Media Client - Aggregates social media sentiment
-"""
 
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
@@ -35,17 +29,17 @@ class SocialMediaClient:
 
         # API keys/tokens
         self.twitter_bearer_token = config.twitter_bearer_token
+        
+        # Reddit settings - from nested config
+        self.reddit_user_agent = config.reddit.user_agent
+        self.reddit_limit = config.reddit.limit
+        self.reddit_time_filter = config.reddit.time_filter
+        self.reddit_subreddits = config.reddit.subreddits
+        self.reddit_comment_limit = config.reddit.comment_limit
+        self.reddit_sort = config.reddit.sort
 
-        # Reddit settings
-        self.reddit_user_agent = config.reddit_user_agent
-        self.reddit_limit = config.reddit_limit
-        self.reddit_time_filter = config.reddit_time_filter.value if hasattr(config.reddit_time_filter, 'value') else config.reddit_time_filter
-        self.reddit_subreddits = config.reddit_subreddits
-        self.reddit_comment_limit = config.reddit_comment_limit
-        self.reddit_sort = config.reddit_sort
-
-        # StockTwits settings
-        self.stocktwits_limit = config.stocktwits_limit
+        # StockTwits settings - from nested config
+        self.stocktwits_limit = config.stocktwits.limit
 
         # Platform selection
         self.platforms = config.platforms
@@ -53,6 +47,7 @@ class SocialMediaClient:
         # Rate limiting
         self.rate_limit = config.rate_limit
         self.request_delay = config.request_delay
+        self.timeout_seconds = getattr(config, 'timeout_seconds', 30)
         self.request_timestamps: List[float] = []
 
         # Cache
@@ -63,6 +58,9 @@ class SocialMediaClient:
         self.sentiment_cache: Dict = {}
 
         logging.info(f"✅ SocialMediaClient initialized with platforms: {self.platforms}")
+        logging.info(f"   Reddit: subreddits={self.reddit_subreddits[:3]}..., limit={self.reddit_limit}")
+        logging.info(f"   StockTwits: limit={self.stocktwits_limit}")
+        
 
     @retry(max_attempts=2, delay=1.0)
     async def search(self, query: str, options: Dict = None) -> Dict[str, Any]:
@@ -155,7 +153,7 @@ class SocialMediaClient:
         Returns:
             Dict with items and metadata
         """
-        # Get settings
+        # Get settings (with fallbacks to instance defaults)
         subreddits = options.get("subreddits", self.reddit_subreddits)
         limit = options.get("reddit_limit", self.reddit_limit)
         sort = options.get("reddit_sort", self.reddit_sort)
@@ -185,7 +183,7 @@ class SocialMediaClient:
 
                     async with session.get(
                         url, headers=headers, params=params,
-                        timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds)
+                        timeout=aiohttp.ClientTimeout(total=self.timeout_seconds)
                     ) as response:
                         if response.status == 200:
                             data = await response.json()
@@ -270,7 +268,7 @@ class SocialMediaClient:
                 async with session.get(
                     url,
                     params={"limit": limit},
-                    timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds)
+                    timeout=aiohttp.ClientTimeout(total=self.timeout_seconds)
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -345,7 +343,7 @@ class SocialMediaClient:
 
                 async with session.get(
                     url, headers=headers, params=params,
-                    timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds)
+                    timeout=aiohttp.ClientTimeout(total=self.timeout_seconds)
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -383,27 +381,6 @@ class SocialMediaClient:
             logging.warning(f"⚠️ Twitter error: {e}")
 
         return {"items": [], "metadata": {"error": "Failed to fetch"}}
-
-    def _format_reddit_post(self, post_data: Dict, subreddit: str) -> Dict[str, Any]:
-        """Format Reddit post for output."""
-        created_utc = post_data.get('created_utc', 0)
-
-        return {
-            "title": post_data.get('title', ''),
-            "content": post_data.get('selftext', '')[:500],
-            "url": f"https://reddit.com{post_data.get('permalink', '')}",
-            "source": Source.REDDIT,
-            "platform": Source.REDDIT,
-            "subreddit": subreddit,
-            "score": post_data.get('score', 0),
-            "num_comments": post_data.get('num_comments', 0),
-            "created_utc": created_utc,
-            "published_at": datetime.fromtimestamp(created_utc).isoformat() if created_utc else None,
-            "author": post_data.get('author', ''),
-            "upvote_ratio": post_data.get('upvote_ratio', 0),
-            "relevance_score": 1.0,
-            "type": "social_post"
-        }
 
     def _extract_ticker(self, query: str) -> Optional[str]:
         """Extract ticker symbol from query."""
