@@ -26,7 +26,7 @@ class PlotGenerator:
         self.config = config
         
         # Plot settings
-        self.style = config.get("style", "seaborn-darkgrid")
+        self.style = config.get("style", "ggplot")
         self.figsize = config.get("figsize", (12, 6))
         self.dpi = config.get("dpi", 100)
         self.output_dir = config.get("output_dir", "charts")
