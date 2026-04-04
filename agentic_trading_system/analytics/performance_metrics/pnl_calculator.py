@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Any
 import numpy as np
 from datetime import datetime, timedelta
 from utils.logger import logger as  logging
+from zoneinfo import ZoneInfo
 
 class PNLCalculator:
     """
@@ -167,12 +168,11 @@ class PNLCalculator:
             "unrealized_pct": unrealized.get('total', 0) / total if total != 0 else 0
         }
     
+    
+
     def calculate_daily_pnl(self, trades: List[Dict[str, Any]], 
-                           days: int = 30) -> Dict[str, Any]:
-        """
-        Calculate daily P&L over a period
-        """
-        end_date = datetime.now()
+                       days: int = 30) -> Dict[str, Any]:
+        end_date = datetime.now(ZoneInfo("UTC"))
         start_date = end_date - timedelta(days=days)
         
         daily_pnl = {}
@@ -182,16 +182,18 @@ class PNLCalculator:
                 continue
             
             exit_time = datetime.fromisoformat(trade['exit_time'])
+            if exit_time.tzinfo is None:
+                exit_time = exit_time.replace(tzinfo=ZoneInfo("UTC"))
+            else:
+                exit_time = exit_time.astimezone(ZoneInfo("UTC"))
+            
             if exit_time < start_date:
                 continue
             
             date_key = exit_time.strftime('%Y-%m-%d')
-            if date_key not in daily_pnl:
-                daily_pnl[date_key] = 0.0
-            
-            daily_pnl[date_key] += trade.get('pnl', 0)
+            daily_pnl[date_key] = daily_pnl.get(date_key, 0.0) + trade.get('pnl', 0)
         
-        # Sort by date
+        # Sort after the loop
         sorted_days = sorted(daily_pnl.items())
         
         if sorted_days:
@@ -201,10 +203,10 @@ class PNLCalculator:
             best_day = max(pnl_values)
             worst_day = min(pnl_values)
         else:
-            avg_daily = 0
-            std_daily = 0
-            best_day = 0
-            worst_day = 0
+            avg_daily = 0.0
+            std_daily = 0.0
+            best_day = 0.0
+            worst_day = 0.0
         
         return {
             "daily_pnl": dict(sorted_days),
@@ -215,7 +217,7 @@ class PNLCalculator:
             "num_days": len(daily_pnl),
             "period_days": days
         }
-    
+
     def calculate_cumulative_pnl(self, trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Calculate cumulative P&L over time
