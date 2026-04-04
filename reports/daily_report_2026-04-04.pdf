@@ -1,0 +1,243 @@
+<!-- PDF placeholder - 2026-04-04 08:34:01.335848 -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Trading Digest - 2026-04-04</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 20px auto;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 32px;
+            font-weight: 300;
+        }
+        .header .date {
+            margin-top: 10px;
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background-color: #f8fafc;
+        }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            text-align: center;
+            transition: transform 0.3s;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        .card .label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        .card .value {
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .card .value.positive {
+            color: #10b981;
+        }
+        .card .value.negative {
+            color: #ef4444;
+        }
+        .card .sub {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+        }
+        .section {
+            padding: 30px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .section h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 20px;
+            color: #333;
+            border-left: 4px solid #667eea;
+            padding-left: 15px;
+        }
+        .table-container {
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background-color: #f3f4f6;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #333;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        tr:hover {
+            background-color: #f9fafb;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .badge.win {
+            background-color: #d1fae5;
+            color: #10b981;
+        }
+        .badge.loss {
+            background-color: #fee2e2;
+            color: #ef4444;
+        }
+        .footer {
+            background-color: #f8fafc;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            border-top: 1px solid #e5e7eb;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .metric-item {
+            background-color: #f9fafb;
+            padding: 15px;
+            border-radius: 6px;
+        }
+        .metric-label {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 18px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Daily Trading Digest</h1>
+            <div class="date">2026-04-04</div>
+        </div>
+
+        <div class="summary-cards">
+            <div class="card">
+                <div class="label">Total P&L</div>
+                <div class="value negative">
+                    $0.00
+                </div>
+                <div class="sub">Today's P&L</div>
+            </div>
+            <div class="card">
+                <div class="label">Win Rate</div>
+                <div class="value">0.0%</div>
+                <div class="sub">0 Wins / 0 Losses</div>
+            </div>
+            <div class="card">
+                <div class="label">Total Trades</div>
+                <div class="value">0</div>
+                <div class="sub">0 Open Positions</div>
+            </div>
+            <div class="card">
+                <div class="label">Sharpe Ratio</div>
+                <div class="value">0.00</div>
+                <div class="sub">Annualized</div>
+            </div>
+        </div>
+
+        
+
+        <div class="section">
+            <h2>📊 Performance Metrics</h2>
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <div class="metric-label">Gross Profit</div>
+                    <div class="metric-value positive">$0.00</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Gross Loss</div>
+                    <div class="metric-value negative">$0.00</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Net Profit</div>
+                    <div class="metric-value negative">
+                        $0.00
+                    </div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Profit Factor</div>
+                    <div class="metric-value">0.00</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Avg Win</div>
+                    <div class="metric-value positive">$0.00</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Avg Loss</div>
+                    <div class="metric-value negative">$0.00</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Max Drawdown</div>
+                    <div class="metric-value negative">0.00%</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Sharpe Ratio</div>
+                    <div class="metric-value">0.00</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Sortino Ratio</div>
+                    <div class="metric-value">0.00</div>
+                </div>
+            </div>
+        </div>
+
+        
+
+        <div class="footer">
+            <p>Generated by Agentic Trading System • 2026-04-04 08:34:01</p>
+            <p style="font-size: 12px; margin-top: 10px;">This is an automated report. For questions, contact your system administrator.</p>
+        </div>
+    </div>
+</body>
+</html>

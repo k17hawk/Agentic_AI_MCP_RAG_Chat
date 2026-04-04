@@ -8,12 +8,13 @@ import json
 from jinja2 import Environment, FileSystemLoader
 import markdown
 
+from agentic_trading_system.reporting.pdf_builder import PDFBuilder
 from utils.logger import logging
 from agents.base_agent import BaseAgent, AgentMessage
 
 class ReportGenerator(BaseAgent):
     """
-    Report Generator - Main orchestrator for all report generation
+    Report Generator - Main orchestrator for all report generatio
     
     Responsibilities:
     - Generate daily/weekly/monthly reports
@@ -439,7 +440,7 @@ class ReportGenerator(BaseAgent):
     async def _generate_pdf(self, html_content: str, filename_prefix: str) -> str:
         """Generate PDF from HTML"""
         if not self.pdf_builder:
-            from reporting.pdf_builder import PDFBuilder
+            
             self.pdf_builder = PDFBuilder(self.config.get("pdf_config", {}))
         
         return await self.pdf_builder.generate(html_content, filename_prefix)
@@ -499,23 +500,42 @@ class ReportGenerator(BaseAgent):
         return []
     
     def _generate_key_insight(self, current: Dict, previous: Dict) -> str:
-        """Generate key insight from metrics"""
-        if current.get('total_pnl', 0) > previous.get('total_pnl', 0):
-            return f"Performance improved by {((current['total_pnl'] - previous['total_pnl']) / abs(previous['total_pnl']) * 100):.1f}% compared to previous period."
+        """Generate key insight from metrics (safe version)."""
+        current_pnl = current.get('total_pnl')
+        previous_pnl = previous.get('total_pnl')
+        
+        if current_pnl is None or previous_pnl is None:
+            return "Insufficient data to compare performance."
+        
+        if previous_pnl == 0:
+            if current_pnl > 0:
+                return "Performance turned positive from zero baseline."
+            elif current_pnl < 0:
+                return "Performance turned negative from zero baseline."
+            else:
+                return "No significant change from previous period."
+        
+        if current_pnl > previous_pnl:
+            change = ((current_pnl - previous_pnl) / abs(previous_pnl)) * 100
+            return f"Performance improved by {change:.1f}% compared to previous period."
         else:
-            return f"Performance declined by {((previous['total_pnl'] - current['total_pnl']) / abs(previous['total_pnl']) * 100):.1f}% compared to previous period."
+            change = ((previous_pnl - current_pnl) / abs(previous_pnl)) * 100
+            return f"Performance declined by {change:.1f}% compared to previous period."
     
     def _generate_recommendations(self, metrics: Dict, strategy_comparison: List) -> List[str]:
-        """Generate recommendations based on metrics"""
+        """Generate recommendations based on metrics (safe version)."""
         recommendations = []
         
-        if metrics.get('win_rate', 0) < 0.5:
+        win_rate = metrics.get('win_rate', 0)
+        if win_rate < 0.5:
             recommendations.append("Consider reviewing entry criteria - win rate below 50%")
         
-        if metrics.get('profit_factor', 0) < 1.5:
+        profit_factor = metrics.get('profit_factor', 0)
+        if profit_factor < 1.5 and profit_factor != 0:
             recommendations.append("Profit factor is low - consider adjusting risk management")
         
-        if metrics.get('max_drawdown', 0) > 15:
+        max_drawdown = metrics.get('max_drawdown', 0)
+        if max_drawdown > 15:
             recommendations.append("Max drawdown is high - consider reducing position sizes")
         
         if strategy_comparison:
@@ -525,11 +545,16 @@ class ReportGenerator(BaseAgent):
         return recommendations or ["Continue with current strategy - metrics look healthy"]
     
     def _generate_executive_summary(self, metrics: Dict, key_insight: str) -> str:
-        """Generate executive summary"""
+        """Generate executive summary (safe version)."""
+        total_trades = metrics.get('total_trades', 0)
+        win_rate = metrics.get('win_rate', 0) * 100
+        total_pnl = metrics.get('total_pnl', 0)
+        profit_factor = metrics.get('profit_factor', 0)
+        
         return f"""
-        During this period, the trading system executed {metrics.get('total_trades', 0)} trades 
-        with a win rate of {metrics.get('win_rate', 0)*100:.1f}%. 
-        Total P&L was ${metrics.get('total_pnl', 0):,.2f} with a profit factor of {metrics.get('profit_factor', 0):.2f}. 
+        During this period, the trading system executed {total_trades} trades 
+        with a win rate of {win_rate:.1f}%. 
+        Total P&L was ${total_pnl:,.2f} with a profit factor of {profit_factor:.2f}. 
         {key_insight}
         """
     
