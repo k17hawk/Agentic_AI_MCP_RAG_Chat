@@ -1,7 +1,3 @@
-# logging_config.yaml
-# Configuration for system logging
-
-# General logging settings
 general:
   level: "INFO"
   format: "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan> | <white>{message}</white>"

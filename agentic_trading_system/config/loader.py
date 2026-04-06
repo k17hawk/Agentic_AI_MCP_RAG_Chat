@@ -66,13 +66,13 @@ class DiscoveryConfigLoader:
             # So project root is 4 levels up
             current_dir = Path(__file__).resolve().parent
             # discovery/config -> discovery -> agentic_trading_system -> project_root
-            project_root = current_dir.parent.parent.parent
+            project_root = 'agentic_trading_system'
             config_dir = project_root / "config"
         
         self.config_dir = Path(config_dir)
         self._config_cache: Optional[DiscoveryConfig] = None
         
-    def load(self, config_file: Path = "agentic_trading_system/config/discovery_config.yaml") -> DiscoveryConfig:
+    def load(self, config_file: Path = "agentic_trading_system/config") -> DiscoveryConfig:
         """
         Load discovery configuration.
         
@@ -86,7 +86,7 @@ class DiscoveryConfigLoader:
         if self._config_cache is not None:
             return self._config_cache
         
-        config_path = self.config_dir / config_file
+        config_path =  config_file
         
         # Check if config file exists
         if not config_path.exists():
@@ -452,10 +452,6 @@ class DiscoveryConfigLoader:
         self._config_cache = None
         return self.load()
 
-
-# =============================================================================
-# Global instance and convenience functions
-# =============================================================================
 
 # Singleton loader instance
 _loader = DiscoveryConfigLoader()

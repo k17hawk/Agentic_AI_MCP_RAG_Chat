@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""
-Launcher script to run trading system from parent directory
-"""
-
 import sys
 import os
 from pathlib import Path
-from agentic_trading_system.orchestrator.main import main
 
+# Change to the project root so relative imports work
+project_root = Path(__file__).parent / "agentic_trading_system"
+os.chdir(project_root)
+sys.path.insert(0, str(project_root))
 
-if __name__ == "__main__":  
+from orchestrator.main import main
+
+if __name__ == "__main__":
     main()

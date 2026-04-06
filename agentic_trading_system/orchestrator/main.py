@@ -40,34 +40,30 @@ class AgenticTradingSystem:
     def __init__(self, config_dir: str = "config"):
         """Initialize the trading system with all components"""
         
-        # Set config directory
-        self.config_dir = Path(config_dir)
+        # ✅ Initialize settings FIRST
+        self.settings = Settings()
         
-        # Initialize settings
-        self.settings = Settings(config_dir=str(self.config_dir))
-        
-        # Setup logging
+        # ✅ Setup logging SECOND (needs settings)
         self.logger = self._setup_logging()
         
-        # Load or create learning config
-        self.learning_config = self._load_or_create_learning_config()
-        
-        # Initialize state
-        self.running = True
+        # ✅ Initialize other attributes
+        self.config_dir = config_dir
         self.start_time = datetime.now()
-        self.last_learning_run = datetime.now()
+        self.running = True
         self.last_metrics_update = datetime.now()
+        self.last_learning_run = datetime.now()
         
-        # Initialize components
+        # ✅ Initialize components THIRD (needs logger and settings)
         self._init_components()
         
-        self.logger.info("🚀 Agentic Trading System Initialized")
-        self.logger.info(f"📊 Learning Mode: {self.learning_config.get('mode', 'continuous')}")
-        self.logger.info(f"🔄 Learning Interval: {self.learning_config.get('interval_hours', 24)} hours")
+        # ✅ Load learning config LAST
+        self.learning_config = self._load_or_create_learning_config()
     
+
+
     def _load_or_create_learning_config(self) -> dict:
         """Load learning config or create default one"""
-        learning_config_path = self.config_dir / "learning_config.yaml"
+        learning_config_path = self.settings.config_dir / "learning_config.yaml"
         
         # Default configuration
         default_config = {
@@ -549,3 +545,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
