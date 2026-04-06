@@ -8,7 +8,9 @@ import pickle
 import asyncio
 from utils.logger import logger as  logging
 import redis
+
 REDIS_AVAILABLE = True
+
 class RedisClient:
     """
     Redis Client for short-term memory storage

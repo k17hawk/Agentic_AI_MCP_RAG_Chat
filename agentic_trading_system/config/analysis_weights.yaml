@@ -1,6 +1,3 @@
-# analysis_weights.yaml
-# Configuration for analysis layer weights and parameters
-
 # Technical Analysis
 technical:
   enabled: true
