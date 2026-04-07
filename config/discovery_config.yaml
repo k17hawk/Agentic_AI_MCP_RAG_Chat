@@ -1,0 +1,188 @@
+# Tavily Search (web search)
+tavily_config:
+  api_key: ${TAVILY_API_KEY}
+  base_url: "https://api.tavily.com"
+  rate_limit: 10
+  cache_ttl_minutes: 30
+  max_results: 10
+  search_depth: "basic"
+
+# News APIs
+news_config:
+  news_api_key: ${NEWS_API_KEY}
+  alpha_vantage_key: ${ALPHA_VANTAGE_KEY}
+  fmp_key: ${FMP_KEY}
+  sources:
+    - reuters
+    - bloomberg
+    - cnbc
+    - wsj
+    - financial-times
+  lookback_days: 7
+  rate_limit: 30
+  cache_ttl_minutes: 15
+
+# Social Media
+social_config:
+  twitter_bearer_token: ${TWITTER_BEARER_TOKEN}
+  reddit:
+    # No API keys needed for read-only public access
+    user_agent: "TradingBot/1.0 (market sentiment aggregator for stock analysis; contact: kumardahal536@gmail.com)"
+    # Rate limiting settings - use numbers, NOT booleans!
+    limit: 100                    # Number of posts to fetch per request ✅
+    time_filter: "week"           # Time range: hour, day, week, month, year, all
+    subreddits:
+      - "wallstreetbets"
+      - "stocks"
+      - "investing"
+      - "stockmarket"
+      - "options"
+    comment_limit: 10              # Number of comments to fetch per post
+    sort: "relevance"                    # hot, new, top, rising
+  stocktwits:
+    # StockTwits API is public read-only
+    limit: 30                      # Number of messages to fetch
+  platforms: ["reddit", "stocktwits"]  # Twitter removed as it requires auth
+  lookback_hours: 24
+  rate_limit: 20
+  cache_ttl_minutes: 10
+  # Rate limit delays (in seconds)
+  request_delay: 2.0               # Delay between requests to avoid rate limiting
+
+# SEC Filings
+sec_config:
+  user_agent: "TradingBot/1.0 (your-email@example.com)"
+  rate_limit: 5
+  cache_ttl_minutes: 1440  # 24 hours in minutes (changed from cache_ttl_hours)
+  filing_types: ["10-K", "10-Q", "8-K", "4", "13F-HR"]
+  known_ciks:
+    AAPL: "0000320193"
+    MSFT: "0000789019"
+    GOOGL: "0001652044"
+    AMZN: "0001018724"
+    TSLA: "0001318605"
+    META: "0001326801"
+    NVDA: "0001045810"
+    JPM: "0000019617"
+    BAC: "0000070858"
+    WMT: "0000104169"
+
+# Options Flow
+options_config:
+  fmp_key: ${FMP_KEY}
+  rate_limit: 30
+  cache_ttl_minutes: 15
+  volume_threshold: 2.0            # 2x average volume is unusual
+  premium_threshold: 100000         # $100k minimum premium
+  # Alternative free source (if FMP fails)
+  use_alternative: true
+  alternative_source: "marketbeat"  # Free options data source
+
+# Macro Data
+macro_config:
+  fred_api_key: ${FRED_API_KEY}
+  rate_limit: 20
+  cache_ttl_minutes: 1440  
+  indicators:
+    gdp:
+      fred: "GDP"
+      name: "Gross Domestic Product"
+      unit: "billions of dollars"
+      frequency: "quarterly"
+      description: "The total value of goods and services produced in the US"
+    real_gdp:
+      fred: "GDPC1"
+      name: "Real Gross Domestic Product"
+      unit: "billions of chained 2017 dollars"
+      frequency: "quarterly"
+      description: "Inflation-adjusted GDP"
+    gdp_growth:
+      fred: "A191RL1Q225SBEA"
+      name: "Real GDP Growth Rate"
+      unit: "percent change"
+      frequency: "quarterly"
+      description: "Quarterly growth rate of real GDP"
+    inflation:
+      fred: "CPIAUCSL"
+      name: "Consumer Price Index"
+      unit: "index 1982-1984=100"
+      frequency: "monthly"
+      description: "Measures average price change for consumer goods"
+    core_inflation:
+      fred: "CPILFESL"
+      name: "Core CPI (Excluding Food and Energy)"
+      unit: "index 1982-1984=100"
+      frequency: "monthly"
+      description: "CPI excluding volatile food and energy prices"
+    unemployment:
+      fred: "UNRATE"
+      name: "Unemployment Rate"
+      unit: "percent"
+      frequency: "monthly"
+      description: "Percentage of unemployed workers in labor force"
+    fed_funds:
+      fred: "FEDFUNDS"
+      name: "Federal Funds Rate"
+      unit: "percent"
+      frequency: "monthly"
+      description: "Interest rate at which banks lend to each other overnight"
+
+# Entity Extraction
+nlp_config:
+  spacy_model: "en_core_web_sm"
+  # Entity types to extract
+  entity_types:
+    - "PERSON"
+    - "ORG"
+    - "GPE"  # Geo-political entities (countries, cities)
+    - "MONEY"
+    - "DATE"
+    - "PERCENT"
+
+regex_config:
+  # Stock ticker patterns (for fallback when NLP fails)
+  ticker_pattern: '\b[A-Z]{1,5}\b'
+  # Exclude common words that look like tickers
+  exclude_tickers:
+    - "A"
+    - "I"
+    - "CEO"
+    - "CFO"
+    - "CTO"
+    - "IPO"
+    - "ETF"
+    - "GDP"
+    - "CPI"
+    - "NYSE"
+    - "NASDAQ"
+
+# Data Enricher
+enricher_config:
+  cache_ttl_minutes: 60
+  price_cache_ttl_minutes: 5
+  # Yahoo Finance as free price source
+  price_source: "yahoo"
+  fundamentals_source: "sec"  # Use SEC for fundamentals
+
+# General settings
+cache_ttl_minutes: 15
+max_workers: 5
+source_weights:
+  tavily: 0.25
+  news: 0.20
+  social: 0.15
+  sec: 0.15
+  options: 0.15
+  macro: 0.10
+
+# Rate limit monitoring
+rate_limit_monitoring:
+  enabled: true
+  alert_threshold: 0.8  # Alert when 80% of rate limit used
+  cooldown_minutes: 60   # Cooldown period after hitting limits
+
+# Logging
+logging:
+  level: "INFO"
+  log_queries: true
+  log_rate_limits: true

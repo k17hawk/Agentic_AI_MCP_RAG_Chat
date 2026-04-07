@@ -72,34 +72,50 @@ class DiscoveryConfigLoader:
         self.config_dir = Path(config_dir)
         self._config_cache: Optional[DiscoveryConfig] = None
         
-    def load(self, config_file: Union[str, Path]) -> DiscoveryConfig:
-        """Load configuration from a YAML file."""
+    def load(self, config_file: Path = Path("agentic_trading_system/config")) -> DiscoveryConfig:
+        """
+        Load discovery configuration.
+        
+        Args:
+            config_file: Name of the YAML config file
+            
+        Returns:
+            DiscoveryConfig object
+        """
+        # Return cached config if available
         if self._config_cache is not None:
             return self._config_cache
-
-        config_path = Path(config_file)
-
+        
+        config_path =  config_file
+        
+        # Check if config file exists
         if not config_path.exists():
             print(f"⚠️ Config file not found: {config_path}")
             print("   Using default configuration...")
             self._config_cache = self._create_default_config()
             return self._config_cache
-
+        
         try:
             import yaml
+            
             with open(config_path, 'r') as f:
                 yaml_content = f.read()
+            
+            # Replace environment variables
             yaml_content = self._replace_env_vars(yaml_content)
             yaml_config = yaml.safe_load(yaml_content)
+            
+            # Build config from YAML
             self._config_cache = self._build_config(yaml_config)
+            
             print(f"✅ Loaded discovery config from: {config_path}")
             return self._config_cache
+            
         except Exception as e:
             print(f"❌ Error loading config from {config_path}: {e}")
             print("   Using default configuration...")
             self._config_cache = self._create_default_config()
             return self._config_cache
-    
     
     def _replace_env_vars(self, content: str) -> str:
         """
@@ -446,12 +462,14 @@ def get_discovery_config() -> DiscoveryConfig:
     Get discovery configuration.
     
     Returns:
-        DiscoveryConfig object loaded from agentic_trading_system/config/discovery_config.yaml
-        or default if not found.
+        DiscoveryConfig object loaded from YAML or default
+        
+    Usage:
+        from discovery.config.loader import get_discovery_config
+        config = get_discovery_config()
+        print(config.tavily.api_key)
     """
-    config_dir = _loader.config_dir
-    config_file = config_dir / "discovery_config.yaml"
-    return _loader.load(config_file)
+    return _loader.load()
 
 
 def reload_discovery_config(config_dir: Optional[Union[str, Path]] = None) -> DiscoveryConfig:

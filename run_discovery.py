@@ -825,13 +825,7 @@ def main():
     
     Default: ['AAPL', 'MSFT', 'TSLA'] - runs all three
     """
-    
-    # ============================================================
-    # CONFIGURE YOUR TICKERS HERE
-    # ============================================================
-    # Single ticker example:
-    # TICKERS = ['AAPL']
-    
+
     # Multiple tickers example:
     TICKERS = ['AAPL', 'MSFT', 'TSLA']
     

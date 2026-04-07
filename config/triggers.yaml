@@ -1,0 +1,210 @@
+# agentic_trading_system/config/triggers.yaml
+# UPDATED - Lower thresholds for testing
+
+# Global trigger settings
+global:
+  enabled: true
+  default_priority: "MEDIUM"
+  max_concurrent_triggers: 10
+  cooldown_seconds: 60
+  retry_attempts: 3
+  retry_delay_seconds: 5
+
+# Individual trigger definitions
+triggers:
+  
+  - name: "major_price_movement"
+    type: "price_alert"
+    enabled: true
+    priority: "CRITICAL"
+    description: "Detects significant price movements"
+    config:
+      symbols: ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "JPM", "V", "JNJ"]
+      timeframes: ["5m", "15m", "1h"]
+      thresholds:
+        absolute: 0.5      # CHANGED: 0.5% instead of 3.0% for testing
+        relative: 0.8      # CHANGED: 0.8x instead of 2.0x
+        momentum: 0.5      # CHANGED: 0.5 instead of 1.5
+      volatility_adjustment: true
+      min_volume: 100000
+      cooldown_minutes: 1   # CHANGED: 1 minute instead of 15
+      filters:
+        - only_trading_hours: false  # CHANGED: Allow after-hours testing
+        - avoid_news_events: false
+        - require_volume_confirmation: false  # CHANGED: Disabled for testing
+  
+  - name: "rapid_intraday_movement"
+    type: "price_alert"
+    enabled: true
+    priority: "HIGH"
+    description: "Catches fast intraday price spikes"
+    config:
+      symbols: ["AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META"]
+      timeframes: ["1m", "5m"]
+      thresholds:
+        absolute: 0.3       # CHANGED: 0.3% instead of 1.5%
+        relative: 1.5       # CHANGED: 1.5x instead of 3.0x
+      volatility_adjustment: true
+      min_volume: 100000
+      require_consecutive: 1  # CHANGED: 1 instead of 3
+      cooldown_minutes: 1
+  
+  - name: "breakout_detector"
+    type: "price_alert"
+    enabled: true
+    priority: "HIGH"
+    description: "Identifies breakouts"
+    config:
+      symbols: ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "GOOGL"]
+      timeframes: ["1h", "4h"]
+      breakout_type: ["resistance", "support"]
+      lookback_periods: 20
+      confirmation_required: false  # CHANGED: No confirmation needed
+      volume_spike_required: false  # CHANGED: No volume requirement
+      min_volume_multiplier: 1.0
+      breakout_threshold: 0.5  # CHANGED: 0.5% instead of 2.0%
+  
+  # ============================================
+  # VOLUME-BASED TRIGGERS - LOWERED THRESHOLDS
+  # ============================================
+  
+  - name: "unusual_volume_spike"
+    type: "volume_spike"
+    enabled: true
+    priority: "HIGH"
+    description: "Detects abnormal trading volume"
+    config:
+      symbols: ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "AMD", "NFLX", "INTC"]
+      volume_multiplier: 1.2    # CHANGED: 1.2x instead of 2.5x
+      lookback_days: 5          # CHANGED: 5 days instead of 20
+      timeframe: "15m"
+      min_absolute_volume: 50000  # CHANGED: 50k instead of 500k
+      require_price_move: false    # CHANGED: No price move required
+      min_price_move_pct: 0.0
+      cooldown_minutes: 1
+  
+  - name: "volume_climax"
+    type: "volume_spike"
+    enabled: true
+    priority: "MEDIUM"
+    description: "Identifies volume climaxes"
+    config:
+      symbols: ["SPY", "QQQ", "IWM"]
+      volume_multiplier: 2.0    # CHANGED: 2.0x instead of 4.0x
+      lookback_days: 5
+      timeframe: "1h"
+      min_absolute_volume: 100000
+      pattern: "exhaustion"
+      cooldown_minutes: 1
+  
+  # ============================================
+  # SCHEDULED TRIGGERS - EVERY MINUTE FOR TESTING
+  # ============================================
+  
+  - name: "market_open"
+    type: "scheduled"
+    enabled: true
+    priority: "HIGH"
+    description: "Market open trigger"
+    config:
+      cron: "* * * * *"        # CHANGED: Every minute for testing
+      timezone: "America/New_York"
+      symbols: ["SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "NVDA"]
+      action: "premarket_analysis"
+  
+  - name: "market_close"
+    type: "scheduled"
+    enabled: true
+    priority: "HIGH"
+    description: "Market close trigger"
+    config:
+      cron: "* * * * *"        # CHANGED: Every minute for testing
+      timezone: "America/New_York"
+      symbols: ["SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "NVDA"]
+      action: "end_of_day_analysis"
+  
+  - name: "hourly_check"
+    type: "scheduled"
+    enabled: true
+    priority: "MEDIUM"
+    description: "Hourly market check"
+    config:
+      cron: "* * * * *"        # CHANGED: Every minute for testing
+      timezone: "America/New_York"
+      symbols: ["SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
+      action: "hourly_scan"
+  
+  - name: "daily_analysis"
+    type: "scheduled"
+    enabled: true
+    priority: "LOW"
+    description: "Daily analysis"
+    config:
+      cron: "* * * * *"        # CHANGED: Every minute for testing
+      timezone: "America/New_York"
+      symbols: ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META"]
+      action: "daily_summary"
+  
+  - name: "weekly_scan"
+    type: "scheduled"
+    enabled: true
+    priority: "LOW"
+    description: "Weekly scan"
+    config:
+      cron: "* * * * *"        # CHANGED: Every minute for testing
+      timezone: "America/New_York"
+      symbols: []
+      action: "weekly_opportunity_scan"
+
+# ============================================
+# TRIGGER GROUPS
+# ============================================
+
+trigger_groups:
+  - name: "high_probability_setup"
+    description: "Multiple triggers confirming same opportunity"
+    required_triggers:
+      - "major_price_movement"
+      - "unusual_volume_spike"
+    min_confirmations: 1      # CHANGED: Only 1 confirmation needed
+    priority_boost: "CRITICAL"
+    cooldown_minutes: 1
+
+# ============================================
+# ALERT ROUTING RULES
+# ============================================
+
+alert_routing:
+  CRITICAL:
+    channels: ["whatsapp", "email"]
+    require_human_approval: false  # CHANGED: Auto-approve for testing
+    timeout_minutes: 1
+    auto_reject_on_timeout: true
+    
+  HIGH:
+    channels: ["email"]
+    require_human_approval: false
+    log_only: false
+    
+  MEDIUM:
+    channels: ["log_only"]
+    require_human_approval: false
+    log_only: true
+    
+  LOW:
+    channels: ["log_only"]
+    require_human_approval: false
+    log_only: true
+
+# ============================================
+# PERFORMANCE & OPTIMIZATION
+# ============================================
+
+performance:
+  max_triggers_per_cycle: 20
+  batch_processing: true
+  batch_size: 5
+  parallel_execution: true
+  max_workers: 4
+  cache_results: true
+  cache_ttl_seconds: 30

@@ -1,0 +1,11 @@
+enable_model_retraining: false
+enable_parameter_tuning: true
+enable_weight_optimization: true
+genetic_generations: 10
+interval_hours: 24
+learning_rate: 0.1
+max_weight_change_percent: 15.0
+min_improvement_threshold: 0.05
+min_trades_for_learning: 10
+mode: continuous
+population_size: 20

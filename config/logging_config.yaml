@@ -1,0 +1,198 @@
+general:
+  level: "INFO"
+  format: "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan> | <white>{message}</white>"
+  rotation: "1 day"
+  retention: "30 days"
+  compression: "zip"
+
+# Log directories
+directories:
+  root: "logs"
+  agents: "logs/agents"
+  triggers: "logs/triggers"
+  analysis: "logs/analysis"
+  execution: "logs/execution"
+  system: "logs/system"
+  trading: "logs/trading"
+  audit: "logs/audit"
+  performance: "logs/performance"
+
+# Component-specific logging
+components:
+  base_agent:
+    level: "INFO"
+    file: "agents/base_agent.log"
+    format: "detailed"
+  
+  orchestrator:
+    level: "INFO"
+    file: "system/orchestrator.log"
+    format: "detailed"
+  
+  triggers:
+    level: "INFO"
+    file: "triggers/triggers.log"
+    format: "detailed"
+    
+    # Specific triggers
+    price_alert:
+      level: "INFO"
+      file: "triggers/price_alert.log"
+    
+    news_alert:
+      level: "INFO"
+      file: "triggers/news_alert.log"
+    
+    volume_spike:
+      level: "INFO"
+      file: "triggers/volume_spike.log"
+  
+  analysis:
+    level: "INFO"
+    file: "analysis/analysis.log"
+    format: "detailed"
+    
+    technical:
+      level: "INFO"
+      file: "analysis/technical.log"
+    
+    fundamental:
+      level: "INFO"
+      file: "analysis/fundamental.log"
+    
+    sentiment:
+      level: "INFO"
+      file: "analysis/sentiment.log"
+  
+  execution:
+    level: "INFO"
+    file: "execution/execution.log"
+    format: "detailed"
+    
+    orders:
+      level: "INFO"
+      file: "execution/orders.log"
+    
+    fills:
+      level: "INFO"
+      file: "execution/fills.log"
+  
+  risk:
+    level: "INFO"
+    file: "risk/risk.log"
+    format: "detailed"
+  
+  portfolio:
+    level: "INFO"
+    file: "portfolio/portfolio.log"
+    format: "detailed"
+  
+  hitl:
+    level: "INFO"
+    file: "hitl/hitl.log"
+    format: "detailed"
+  
+  memory:
+    level: "INFO"
+    file: "memory/memory.log"
+    format: "detailed"
+  
+  learning:
+    level: "INFO"
+    file: "learning/learning.log"
+    format: "detailed"
+  
+  analytics:
+    level: "INFO"
+    file: "analytics/analytics.log"
+    format: "detailed"
+  
+  reporting:
+    level: "INFO"
+    file: "reporting/reporting.log"
+    format: "detailed"
+
+# Trading-specific logs
+trading:
+  trades:
+    enabled: true
+    file: "trading/trades.log"
+    format: "json"
+    include:
+      - trade_id
+      - symbol
+      - action
+      - quantity
+      - price
+      - pnl
+      - timestamp
+  
+  signals:
+    enabled: true
+    file: "trading/signals.log"
+    format: "json"
+    include:
+      - signal_id
+      - symbol
+      - type
+      - confidence
+      - timestamp
+  
+  decisions:
+    enabled: true
+    file: "trading/decisions.log"
+    format: "json"
+    include:
+      - decision_id
+      - symbol
+      - decision
+      - response_time
+      - timestamp
+
+# Audit logging
+audit:
+  enabled: true
+  file: "audit/audit.log"
+  format: "json"
+  integrity_check: true
+  retention_days: 2555  # 7 years
+  include:
+    - user
+    - action
+    - resource
+    - ip_address
+    - user_agent
+    - timestamp
+
+# Performance logging
+performance:
+  enabled: true
+  file: "performance/metrics.log"
+  interval_seconds: 60
+  metrics:
+    - cpu_usage
+    - memory_usage
+    - active_agents
+    - queue_sizes
+    - processing_times
+
+# Error handling
+errors:
+  level: "ERROR"
+  file: "system/errors.log"
+  include_stacktrace: true
+  alert_on_critical: true
+  max_error_log_size: 100
+
+# Log formats
+formats:
+  simple: "{time} | {level} | {message}"
+  detailed: "{time:HH:mm:ss} | {level: <8} | {name:20} | {function:20} | {message}"
+  json: '{"timestamp": "{time}", "level": "{level}", "name": "{name}", "message": "{message}"}'
+
+# Console output
+console:
+  enabled: true
+  level: "INFO"
+  format: "detailed"
+  colors: true

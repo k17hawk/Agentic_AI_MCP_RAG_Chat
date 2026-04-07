@@ -1,437 +1,266 @@
-# agentic_trading_system/config/triggers.yaml
-# Complete trigger configuration for autonomous trading system
-
-# Global trigger settings
-global:
-  enabled: true
-  default_priority: "MEDIUM"  # CRITICAL, HIGH, MEDIUM, LOW
-  max_concurrent_triggers: 10
-  cooldown_seconds: 60  # Prevent duplicate triggers
-  retry_attempts: 3
-  retry_delay_seconds: 5
-
-# Individual trigger definitions
-triggers:
-  
-  # ============================================
-  # PRICE-BASED TRIGGERS
-  # ============================================
-  
-  - name: "major_price_movement"
-    type: "price_alert"
-    enabled: true
-    priority: "CRITICAL"
-    description: "Detects significant price movements across multiple timeframes"
-    config:
-      symbols: ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "JPM", "V", "JNJ"]
-      timeframes: ["5m", "15m", "1h", "4h", "1d"]
-      thresholds:
-        absolute: 3.0      # 3% absolute price move
-        relative: 2.0      # 2x average true range
-        momentum: 1.5      # 50% above average momentum
-      volatility_adjustment: true
-      min_volume: 1000000   # Minimum volume to filter noise
-      cooldown_minutes: 15
-      # Custom filters
-      filters:
-        - only_trading_hours: true
-        - avoid_news_events: false
-        - require_volume_confirmation: true
-  
-  - name: "rapid_intraday_movement"
-    type: "price_alert"
-    enabled: true
-    priority: "HIGH"
-    description: "Catches fast intraday price spikes"
-    config:
-      symbols: ["AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META"]
-      timeframes: ["1m", "5m"]
-      thresholds:
-        absolute: 1.5       # 1.5% move in short timeframe
-        relative: 3.0       # 3x normal volatility
-      volatility_adjustment: true
-      min_volume: 500000
-      require_consecutive: 3  # Require 3 consecutive candles
-      cooldown_minutes: 5
-  
-  - name: "breakout_detector"
-    type: "price_alert"
-    enabled: true
-    priority: "HIGH"
-    description: "Identifies breakout above resistance or below support"
-    config:
-      symbols: ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "GOOGL"]
-      timeframes: ["1h", "4h", "1d"]
-      breakout_type: ["resistance", "support"]
-      lookback_periods: 20
-      confirmation_required: true
-      volume_spike_required: true
-      min_volume_multiplier: 1.5
-      breakout_threshold: 2.0  # 2% above resistance
-  
-  # ============================================
-  # VOLUME-BASED TRIGGERS
-  # ============================================
-  
-  - name: "unusual_volume_spike"
-    type: "volume_spike"
-    enabled: true
-    priority: "HIGH"
-    description: "Detects abnormal trading volume"
-    config:
-      symbols: ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "AMD", "NFLX", "INTC"]
-      volume_multiplier: 2.5    # 2.5x average volume
-      lookback_days: 20
-      timeframe: "15m"
-      min_absolute_volume: 500000
-      require_price_move: true
-      min_price_move_pct: 1.0
-      cooldown_minutes: 30
-  
-  - name: "volume_climax"
-    type: "volume_spike"
-    enabled: true
-    priority: "MEDIUM"
-    description: "Identifies volume climaxes indicating potential reversals"
-    config:
-      symbols: ["SPY", "QQQ", "IWM"]
-      volume_multiplier: 4.0    # 4x average volume
-      lookback_days: 10
-      timeframe: "1h"
-      min_absolute_volume: 1000000
-      pattern: "exhaustion"      # buying or selling climax
-      cooldown_minutes: 60
-  
-  # ============================================
-  # NEWS & SENTIMENT TRIGGERS
-  # ============================================
-  
-  - name: "breaking_news"
-    type: "news_alert"
-    enabled: true
-    priority: "CRITICAL"
-    description: "Monitors major news outlets for market-moving events"
-    config:
-      sources: ["reuters", "bloomberg", "cnbc", "wsj", "ft", "yahoo_finance"]
-      keywords:
-        - "earnings"
-        - "acquisition"
-        - "merger"
-        - "upgrade"
-        - "downgrade"
-        - "lawsuit"
-        - "regulatory"
-        - "ceo"
-        - "product launch"
-        - "bankruptcy"
-        - "fda approval"
-        - "patent"
-      sentiment_threshold: 0.4   # -1 to 1 scale, |sentiment| > 0.4 triggers
-      urgency_threshold: 0.7
-      lookback_minutes: 5
-      min_articles: 3
-      require_multiple_sources: true
-      cooldown_minutes: 10
-  
-  - name: "earnings_announcement"
-    type: "news_alert"
-    enabled: true
-    priority: "CRITICAL"
-    description: "Specialized trigger for earnings releases"
-    config:
-      sources: ["reuters", "bloomberg", "seeking_alpha"]
-      keywords: ["earnings", "eps", "revenue", "quarter", "beat", "miss"]
-      symbols: []  # Auto-detect from news
-      sentiment_threshold: 0.6
-      earnings_specific: true
-      track_surprise: true  # Track EPS/revenue surprise
-      cooldown_minutes: 30
-  
-  # ============================================
-  # PATTERN RECOGNITION TRIGGERS
-  # ============================================
-  
-  - name: "candlestick_patterns"
-    type: "pattern_recognition"
-    enabled: true
-    priority: "MEDIUM"
-    description: "Detects important candlestick patterns"
-    config:
-      symbols: ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA"]
-      patterns:
-        - "doji"
-        - "hammer"
-        - "shooting_star"
-        - "engulfing"
-        - "morning_star"
-        - "evening_star"
-        - "harami"
-        - "piercing_pattern"
-      timeframe: "1d"
-      min_confidence: 0.7
-      require_volume_confirmation: true
-      cooldown_days: 1
-  
-  - name: "technical_patterns"
-    type: "pattern_recognition"
-    enabled: true
-    priority: "MEDIUM"
-    description: "Identifies chart patterns like head and shoulders"
-    config:
-      symbols: ["SPY", "QQQ", "AAPL", "MSFT", "TSLA"]
-      patterns:
-        - "head_shoulders"
-        - "inverse_head_shoulders"
-        - "double_top"
-        - "double_bottom"
-        - "triangle_ascending"
-        - "triangle_descending"
-        - "wedge"
-        - "flag"
-      timeframe: "4h"
-      min_confidence: 0.8
-      lookback_days: 60
-      cooldown_days: 3
-  
-  # ============================================
-  # SOCIAL SENTIMENT TRIGGERS
-  # ============================================
-  
-  - name: "social_media_sentiment"
-    type: "social_sentiment"
-    enabled: true
-    priority: "MEDIUM"
-    description: "Monitors Twitter and Reddit for sentiment shifts"
-    config:
-      platforms: ["twitter", "reddit"]
-      symbols: ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "GME", "AMC"]
-      subreddits: ["wallstreetbets", "investing", "stocks", "options"]
-      sentiment_threshold: 0.5
-      volume_threshold: 100  # Minimum mentions
-      timeframe_minutes: 60
-      track_trending: true
-      cooldown_minutes: 15
-  
-  - name: "meme_stock_detector"
-    type: "social_sentiment"
-    enabled: true
-    priority: "HIGH"
-    description: "Specialized detector for meme stock activity"
-    config:
-      platforms: ["reddit", "twitter"]
-      symbols: []  # Auto-detect trending
-      subreddits: ["wallstreetbets", "memestock", "pennystocks"]
-      sentiment_threshold: 0.7
-      volume_threshold: 500
-      velocity_threshold: 200  # Mentions per hour
-      timeframe_minutes: 30
-      cooldown_minutes: 10
-  
-  # ============================================
-  # SCHEDULED TRIGGERS
-  # ============================================
-  
-  - name: "market_open"
-    type: "scheduled"
-    enabled: true
-    priority: "HIGH"
-    description: "Trigger at market open for pre-market analysis"
-    config:
-      cron: "30 9 * * 1-5"     # 9:30 AM EST weekdays
-      timezone: "America/New_York"
-      symbols: ["SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "NVDA"]
-      action: "premarket_analysis"
-  
-  - name: "market_close"
-    type: "scheduled"
-    enabled: true
-    priority: "HIGH"
-    description: "Trigger before market close for end-of-day positions"
-    config:
-      cron: "55 15 * * 1-5"    # 3:55 PM EST weekdays
-      timezone: "America/New_York"
-      symbols: ["SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "NVDA"]
-      action: "end_of_day_analysis"
-  
-  - name: "hourly_check"
-    type: "scheduled"
-    enabled: true
-    priority: "MEDIUM"
-    description: "Hourly market check during trading hours"
-    config:
-      cron: "5 * * * 1-5"      # At 5 minutes past every hour
-      timezone: "America/New_York"
-      symbols: ["SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
-      action: "hourly_scan"
-  
-  - name: "daily_analysis"
-    type: "scheduled"
-    enabled: true
-    priority: "LOW"
-    description: "Daily comprehensive market analysis"
-    config:
-      cron: "0 18 * * *"       # 6:00 PM daily
-      timezone: "America/New_York"
-      symbols: ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META"]
-      action: "daily_summary"
-  
-  - name: "weekly_scan"
-    type: "scheduled"
-    enabled: true
-    priority: "LOW"
-    description: "Weekly scan for new opportunities"
-    config:
-      cron: "0 10 * * 0"       # 10:00 AM Sunday
-      timezone: "America/New_York"
-      symbols: []  # Scan entire watchlist
-      action: "weekly_opportunity_scan"
-  
-  # ============================================
-  # OPTIONS FLOW TRIGGERS (Advanced)
-  # ============================================
-  
-  # - name: "unusual_options_activity"
-  #   type: "options_flow"  # Custom trigger type
-  #   enabled: true
-  #   priority: "HIGH"
-  #   description: "Detects unusual options activity"
-  #   config:
-  #     symbols: ["AAPL", "MSFT", "NVDA", "TSLA", "SPY", "QQQ"]
-  #     volume_multiplier: 5.0   # 5x average options volume
-  #     premium_threshold: 500000 # $500k premium
-  #     sentiment: ["bullish", "bearish"]
-  #     require_smart_money: true
-  #     cooldown_minutes: 60
-  
-  # # ============================================
-  # # MACRO ECONOMIC TRIGGERS
-  # # ============================================
-  
-  # - name: "economic_events"
-  #   type: "economic_calendar"
-  #   enabled: true
-  #   priority: "CRITICAL"
-  #   description: "Monitors major economic releases"
-  #   config:
-  #     events:
-  #       - "FOMC"
-  #       - "NFP"
-  #       - "CPI"
-  #       - "PPI"
-  #       - "GDP"
-  #       - "Unemployment"
-  #       - "Interest Rate Decision"
-  #     lead_time_minutes: 30   # Trigger 30 minutes before event
-  #     volatility_expected: true
-  #     symbols: ["SPY", "QQQ", "TLT", "GLD", "DXY"]
-  #     action: "reduce_risk"
-  
-  # # ============================================
-  # # TECHNICAL INDICATOR TRIGGERS
-  # # ============================================
-  
-  # - name: "rsi_extreme"
-  #   type: "technical_indicator"
-  #   enabled: true
-  #   priority: "MEDIUM"
-  #   description: "RSI overbought/oversold conditions"
-  #   config:
-  #     symbols: ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META"]
-  #     indicator: "rsi"
-  #     timeframe: "1d"
-  #     thresholds:
-  #       overbought: 70
-  #       oversold: 30
-  #       extreme_overbought: 85
-  #       extreme_oversold: 15
-  #     require_confirmation: true
-  #     cooldown_days: 2
-  
-  # - name: "macd_crossover"
-  #   type: "technical_indicator"
-  #   enabled: true
-  #   priority: "MEDIUM"
-  #   description: "MACD line crossover signals"
-  #   config:
-  #     symbols: ["SPY", "QQQ", "IWM", "AAPL", "MSFT"]
-  #     indicator: "macd"
-  #     timeframe: "4h"
-  #     fast_period: 12
-  #     slow_period: 26
-  #     signal_period: 9
-  #     require_histogram_confirmation: true
-  #     cooldown_hours: 6
-
-# ============================================
-# TRIGGER GROUPS (Composite Triggers)
-# ============================================
-
-trigger_groups:
-  - name: "high_probability_setup"
-    description: "Multiple triggers confirming same opportunity"
-    required_triggers:
-      - "major_price_movement"
-      - "unusual_volume_spike"
-      - "breaking_news"
-    min_confirmations: 2
-    priority_boost: "CRITICAL"
-    cooldown_minutes: 60
-  
-  - name: "momentum_surge"
-    description: "Price + volume + social momentum"
-    required_triggers:
-      - "rapid_intraday_movement"
-      - "unusual_volume_spike"
-      - "social_media_sentiment"
-    min_confirmations: 2
-    priority_boost: "HIGH"
-    cooldown_minutes: 30
-  
-  - name: "reversal_setup"
-    description: "Potential trend reversal signals"
-    required_triggers:
-      - "volume_climax"
-      - "candlestick_patterns"
-      - "rsi_extreme"
-    min_confirmations: 2
-    priority_boost: "HIGH"
-    cooldown_minutes: 120
-
-# ============================================
-# ALERT ROUTING RULES
-# ============================================
-
 alert_routing:
   CRITICAL:
-    channels: ["whatsapp", "sms", "email"]
-    require_human_approval: true
-    timeout_minutes: 5
     auto_reject_on_timeout: true
-    
+    channels:
+    - whatsapp
+    - email
+    require_human_approval: false
+    timeout_minutes: 1
   HIGH:
-    channels: ["whatsapp", "email"]
-    require_human_approval: false
+    channels:
+    - email
+    - whatsapp
     log_only: false
-    
-  MEDIUM:
-    channels: ["email"]
     require_human_approval: false
-    log_only: false
-    
   LOW:
-    channels: ["log_only"]
+    channels:
+    - log_only
     require_human_approval: false
-    log_only: true
-
-# ============================================
-# PERFORMANCE & OPTIMIZATION
-# ============================================
-
+  MEDIUM:
+    channels:
+    - email
+    - whatsapp
+    require_human_approval: false
+global:
+  cooldown_seconds: 60
+  default_priority: MEDIUM
+  enabled: true
+  max_concurrent_triggers: 10
+  retry_attempts: 3
+  retry_delay_seconds: 5
 performance:
-  max_triggers_per_cycle: 20
   batch_processing: true
   batch_size: 5
-  parallel_execution: true
-  max_workers: 4
   cache_results: true
   cache_ttl_seconds: 30
+  max_triggers_per_cycle: 20
+  max_workers: 4
+  parallel_execution: true
+trigger_groups:
+- cooldown_minutes: 1
+  description: Multiple triggers confirming same opportunity
+  min_confirmations: 1
+  name: high_probability_setup
+  priority_boost: CRITICAL
+  required_triggers:
+  - major_price_movement
+  - unusual_volume_spike
+triggers:
+- config:
+    cooldown_minutes: 1
+    execution_mode: realtime
+    min_volume: 100000
+    percent_change: 0.5
+    symbols:
+    - NVDA
+    - AMD
+    - META
+    - AAPL
+    - MSFT
+    - GOOGL
+    thresholds:
+      absolute: 0.5
+      momentum: 0.5
+      relative: 0.8
+    timeframes:
+    - 1m
+    - 5m
+    - 15m
+    - 1h
+    volatility_adjustment: true
+  description: Detects significant price movements
+  enabled: true
+  name: major_price_movement
+  priority: CRITICAL
+  type: price_alert
+- config:
+    cooldown_minutes: 1
+    execution_mode: realtime
+    min_volume: 100000
+    percent_change: 0.3
+    symbols:
+    - AAPL
+    - MSFT
+    - NVDA
+    - TSLA
+    - AMD
+    - META
+    - GOOGL
+    thresholds:
+      absolute: 0.3
+      relative: 1.5
+    timeframes:
+    - 1m
+    - 5m
+    volatility_adjustment: true
+  description: Catches fast intraday price spikes
+  enabled: true
+  name: rapid_intraday_movement
+  priority: HIGH
+  type: price_alert
+- config:
+    breakout_threshold: 0.5
+    confirmation_required: false
+    execution_mode: realtime
+    lookback_periods: 20
+    min_volume_multiplier: 1.0
+    percent_change: 0.5
+    symbols:
+    - SPY
+    - QQQ
+    - IWM
+    - AAPL
+    - MSFT
+    - GOOGL
+    - NVDA
+    timeframes:
+    - 1h
+    - 4h
+    volume_spike_required: false
+  description: Identifies breakouts
+  enabled: true
+  name: breakout_detector
+  priority: HIGH
+  type: price_alert
+- config:
+    cooldown_minutes: 1
+    execution_mode: realtime
+    lookback_days: 5
+    min_absolute_volume: 50000
+    symbols:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - NVDA
+    - TSLA
+    - META
+    - AMD
+    timeframe: 15m
+    volume_multiplier: 1.5
+  description: Detects abnormal trading volume
+  enabled: true
+  name: unusual_volume_spike
+  priority: HIGH
+  type: volume_spike
+- config:
+    cooldown_minutes: 1
+    execution_mode: realtime
+    lookback_days: 5
+    min_absolute_volume: 100000
+    symbols:
+    - SPY
+    - QQQ
+    - IWM
+    - AAPL
+    - MSFT
+    - NVDA
+    timeframe: 1h
+    volume_multiplier: 1.5
+  description: Identifies volume climaxes
+  enabled: true
+  name: volume_climax
+  priority: MEDIUM
+  type: volume_spike
+- config:
+    action: premarket_analysis
+    cron: 30 9 * * 1-5
+    execution_mode: scheduled
+    symbols:
+    - SPY
+    - QQQ
+    - AAPL
+    - MSFT
+    - GOOGL
+    - NVDA
+    - TSLA
+    - META
+    timezone: America/New_York
+  description: Market open trigger
+  enabled: true
+  name: market_open
+  priority: HIGH
+  type: scheduled
+- config:
+    action: end_of_day_analysis
+    cron: 0 16 * * 1-5
+    execution_mode: scheduled
+    symbols:
+    - SPY
+    - QQQ
+    - AAPL
+    - MSFT
+    - GOOGL
+    - NVDA
+    - TSLA
+    - META
+    timezone: America/New_York
+  description: Market close trigger
+  enabled: true
+  name: market_close
+  priority: HIGH
+  type: scheduled
+- config:
+    action: hourly_scan
+    cron: 0 * * * 1-5
+    execution_mode: scheduled
+    symbols:
+    - SPY
+    - QQQ
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - NVDA
+    - META
+    - TSLA
+    timezone: America/New_York
+  description: Hourly market check
+  enabled: true
+  name: hourly_check
+  priority: MEDIUM
+  type: scheduled
+- config:
+    action: daily_summary
+    cron: 30 16 * * 1-5
+    execution_mode: scheduled
+    symbols:
+    - SPY
+    - QQQ
+    - IWM
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - NVDA
+    - TSLA
+    - META
+    timezone: America/New_York
+  description: Daily analysis
+  enabled: true
+  name: daily_analysis
+  priority: LOW
+  type: scheduled
+- config:
+    action: weekly_opportunity_scan
+    cron: 0 17 * * 5
+    execution_mode: scheduled
+    symbols:
+    - SPY
+    - QQQ
+    - IWM
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - NVDA
+    - TSLA
+    - META
+    - AMD
+    - NFLX
+    timezone: America/New_York
+  description: Weekly scan
+  enabled: true
+  name: weekly_scan
+  priority: LOW
+  type: scheduled

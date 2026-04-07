@@ -1,0 +1,170 @@
+
+postgresql:
+  enabled: true
+  default: true
+  
+  # Connection settings
+  host: ${POSTGRES_HOST:-localhost}
+  port: ${POSTGRES_PORT:-5432}
+  database: ${POSTGRES_DB:-trading}
+  user: ${POSTGRES_USER:-postgres}
+  password: ${POSTGRES_PASSWORD:-postgres}
+  
+  # Connection pool
+  pool:
+    min_size: 5
+    max_size: 20
+    max_queries: 50000
+    max_inactive_connection_lifetime: 300
+  
+  # Tables
+  tables:
+    trades:
+      name: "trades"
+      retention_days: 90
+      indexes:
+        - symbol
+        - entry_time
+        - exit_time
+    
+    signals:
+      name: "signals"
+      retention_days: 30
+      indexes:
+        - symbol
+        - signal_type
+        - generated_at
+    
+    decisions:
+      name: "decisions"
+      retention_days: 365
+      indexes:
+        - symbol
+        - decision
+        - timestamp
+    
+    performance:
+      name: "performance_metrics"
+      retention_days: 365
+      indexes:
+        - period_id
+        - start_date
+    
+    model_weights:
+      name: "model_weights"
+      retention_days: 730
+      indexes:
+        - model_name
+        - model_version
+
+# Redis (Short-term storage)
+redis:
+  enabled: true
+  default: false
+  
+  # Connection settings
+  host: ${REDIS_HOST:-localhost}
+  port: ${REDIS_PORT:-6379}
+  db: 0
+  password: ${REDIS_PASSWORD:-}
+  decode_responses: false
+  
+  # Connection pool
+  pool:
+    max_connections: 50
+  
+  # Default TTLs (seconds)
+  ttl:
+    session: 86400  # 24 hours
+    price: 60  # 1 minute
+    position: 3600  # 1 hour
+    signal: 3600  # 1 hour
+    pending_approval: 300  # 5 minutes
+  
+  # Keyspaces
+  keyspaces:
+    session: "session:{session_id}"
+    prices: "prices:{symbol}"
+    positions: "positions:{symbol}"
+    signals: "signals:{signal_id}"
+    pending: "pending:{approval_id}"
+    cache: "cache:{key}"
+
+# MongoDB (Document storage - optional)
+mongodb:
+  enabled: false
+  
+  # Connection settings
+  host: ${MONGODB_HOST:-localhost}
+  port: ${MONGODB_PORT:-27017}
+  database: ${MONGODB_DB:-trading}
+  user: ${MONGODB_USER:-}
+  password: ${MONGODB_PASSWORD:-}
+  
+  # Collections
+  collections:
+    raw_data: "raw_data"
+    analytics: "analytics"
+    reports: "reports"
+
+# InfluxDB (Time-series - optional)
+influxdb:
+  enabled: false
+  
+  # Connection settings
+  url: ${INFLUXDB_URL:-http://localhost:8086}
+  token: ${INFLUXDB_TOKEN:-}
+  org: ${INFLUXDB_ORG:-trading}
+  bucket: ${INFLUXDB_BUCKET:-metrics}
+  
+  # Retention
+  retention_policy: "30d"
+
+# S3/MinIO (Long-term storage)
+s3:
+  enabled: false
+  
+  # Connection settings
+  endpoint: ${S3_ENDPOINT:-http://localhost:9000}
+  access_key: ${S3_ACCESS_KEY:-minioadmin}
+  secret_key: ${S3_SECRET_KEY:-minioadmin}
+  region: ${S3_REGION:-us-east-1}
+  secure: ${S3_SECURE:-false}
+  
+  # Buckets
+  buckets:
+    data_lake: "trading-data-lake"
+    archives: "trading-archives"
+    backups: "trading-backups"
+    reports: "trading-reports"
+  
+  # Retention (days)
+  retention:
+    data_lake: 2555  # 7 years
+    archives: 2555
+    backups: 30
+    reports: 90
+
+# Backup configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention_days: 30
+  
+  # Backup locations
+  locations:
+    local: "data/backups"
+    s3: "trading-backups"
+  
+  # What to backup
+  include:
+    - postgresql
+    - redis
+    - config
+    - models
+
+# Migration settings
+migrations:
+  directory: "migrations"
+  auto_migrate: true
+  version_table: "schema_version"

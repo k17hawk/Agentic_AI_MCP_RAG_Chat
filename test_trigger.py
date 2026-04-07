@@ -6,8 +6,6 @@ import yaml
 import logging
 from pathlib import Path
 
-# Add project to path
-sys.path.insert(0, str(Path(__file__).parent))
 
 from agentic_trading_system.triggers.trigger_orchestrator import TriggerOrchestrator
 
@@ -89,3 +87,6 @@ if __name__ == "__main__":
             print("✅ Start method executed")
         except Exception as e:
             print(f"❌ Error starting: {e}")
+
+
+
