@@ -40,29 +40,27 @@ class AgenticTradingSystem:
     def __init__(self, config_dir: str = "config"):
         """Initialize the trading system with all components"""
         
-        # Initialize settings FIRST
+        # ✅ Initialize settings FIRST
         self.settings = Settings()
         
-        # Setup logging SECOND (needs settings)
+        # ✅ Setup logging SECOND (needs settings)
         self.logger = self._setup_logging()
         
-        # Initialize other attributes
+        # ✅ Initialize other attributes
         self.config_dir = config_dir
         self.start_time = datetime.now()
         self.running = True
         self.last_metrics_update = datetime.now()
         self.last_learning_run = datetime.now()
         
-        # Initialize components THIRD (needs logger and settings)
+        # ✅ Initialize components THIRD (needs logger and settings)
         self._init_components()
         
-        # Load learning config LAST
+        # ✅ Load learning config LAST
         self.learning_config = self._load_or_create_learning_config()
-        
-        # Task management
-        self.orchestrator_task = None
-        self.background_tasks = []
     
+
+
     def _load_or_create_learning_config(self) -> dict:
         """Load learning config or create default one"""
         learning_config_path = self.settings.config_dir / "learning_config.yaml"
@@ -92,6 +90,7 @@ class AgenticTradingSystem:
                         self.logger.info(f"✅ Loaded learning config from {learning_config_path}")
                     else:
                         self.logger.warning(f"Learning config file exists but is empty, using defaults")
+                        # Create default config file
                         self._create_default_learning_config(learning_config_path, default_config)
             else:
                 self.logger.warning(f"Learning config not found at {learning_config_path}, creating default")
@@ -166,10 +165,10 @@ class AgenticTradingSystem:
             )
             self.logger.info("✅ TriggerOrchestrator initialized")
         except Exception as e:
-            self.logger.error(f"Failed to initialize TriggerOrchestrator: {e}", exc_info=True)
+            self.logger.error(f"Failed to initialize TriggerOrchestrator: {e}")
             self.trigger_orchestrator = None
         
-        # Initialize other components with proper error handling
+        # Initialize other components
         components = {
             'search_aggregator': SearchAggregator,
             'quality_gates': QualityGates,
@@ -182,22 +181,32 @@ class AgenticTradingSystem:
         
         for name, component_class in components.items():
             try:
-                # Try to initialize without arguments first
-                instance = component_class()
+                # Try to initialize with name and config
+                instance = component_class(
+                    name=name,
+                    config={'enabled': True, 'log_level': 'INFO'}
+                )
                 setattr(self, name, instance)
                 self.logger.info(f"✅ {name} initialized")
             except TypeError as e:
-                # Try with config dict
-                try:
-                    instance = component_class(config={'enabled': True, 'name': name})
-                    setattr(self, name, instance)
-                    self.logger.info(f"✅ {name} initialized with config")
-                except Exception as e2:
-                    self.logger.warning(f"Could not initialize {name}: {e2}")
+                # Try without arguments
+                if "required positional arguments" in str(e):
+                    try:
+                        instance = component_class()
+                        setattr(self, name, instance)
+                        self.logger.info(f"✅ {name} initialized (no args)")
+                    except Exception as e2:
+                        self.logger.debug(f"Could not initialize {name} without args: {e2}")
+                        setattr(self, name, None)
+                else:
+                    self.logger.debug(f"Could not initialize {name}: {e}")
                     setattr(self, name, None)
             except Exception as e:
-                self.logger.warning(f"Could not initialize {name}: {e}")
+                self.logger.debug(f"Could not initialize {name}: {e}")
                 setattr(self, name, None)
+        
+        # Create memory stub
+        self.memory = None
         
         # Count successfully initialized components
         initialized = sum(1 for name in components if getattr(self, name, None) is not None)
@@ -222,32 +231,15 @@ class AgenticTradingSystem:
             except Exception as e:
                 self.logger.debug(f"Could not get trigger status: {e}")
             
-            # Process events from trigger queue
-            if hasattr(self.trigger_orchestrator, 'event_queue'):
-                events_processed = 0
-                try:
-                    # Process up to 10 events per cycle
-                    for _ in range(10):
-                        if self.trigger_orchestrator.event_queue.empty():
-                            break
-                        event = await self.trigger_orchestrator.event_queue.get()
-                        await self._handle_trigger_event(event)
-                        events_processed += 1
-                    
-                    if events_processed > 0:
-                        self.logger.info(f"📨 Processed {events_processed} trigger events")
-                except Exception as e:
-                    self.logger.error(f"Error processing events: {e}")
+            # Get real triggers from orchestrator if available
+            # Note: TriggerOrchestrator doesn't have detect_triggers method
+            # So we'll use the event queue or just log status
             
-            # Update metrics periodically
-            await self._update_system_metrics()
-            
-            # Save cycle artifacts
+            # For now, just save status as artifact
             await self._save_cycle_artifacts({
                 'timestamp': datetime.now().isoformat(),
                 'orchestrator_status': status if 'status' in locals() else {},
-                'status': 'running',
-                'cycle_duration': (datetime.now() - cycle_start).total_seconds()
+                'status': 'running'
             })
             
             cycle_duration = (datetime.now() - cycle_start).total_seconds()
@@ -256,108 +248,6 @@ class AgenticTradingSystem:
         except Exception as e:
             self.logger.error(f"Error in market cycle: {e}", exc_info=True)
             await self._handle_cycle_error(e)
-    
-    async def _handle_trigger_event(self, event: dict):
-        """Handle trigger events from the orchestrator"""
-        try:
-            trigger_name = event.get('trigger_name', 'unknown')
-            trigger_type = event.get('trigger_type', 'unknown')
-            data = event.get('data', {})
-            
-            self.logger.info(f"📢 Handling {trigger_type} event from {trigger_name}")
-            
-            # Route to appropriate handler based on trigger type
-            if trigger_type == 'price_alert' or 'price' in trigger_type.lower():
-                await self._handle_price_alert(data)
-            elif trigger_type == 'volume_spike' or 'volume' in trigger_type.lower():
-                await self._handle_volume_spike(data)
-            elif trigger_type == 'scheduled':
-                await self._handle_scheduled_event(data)
-            else:
-                self.logger.debug(f"Unhandled trigger type: {trigger_type}")
-                
-        except Exception as e:
-            self.logger.error(f"Error handling trigger event: {e}", exc_info=True)
-    
-    async def _handle_price_alert(self, data: dict):
-        """Handle price alert events"""
-        symbol = data.get('symbol', 'unknown')
-        price_change = data.get('price_change_percent', 0)
-        current_price = data.get('current_price', 0)
-        
-        self.logger.info(f"💰 Price alert: {symbol} moved {price_change:.2f}% to ${current_price:.2f}")
-        
-        # Trigger analysis for this symbol
-        if hasattr(self, 'analysis_orchestrator') and self.analysis_orchestrator:
-            try:
-                await self.analysis_orchestrator.analyze_symbol(symbol)
-            except Exception as e:
-                self.logger.debug(f"Could not analyze symbol: {e}")
-    
-    async def _handle_volume_spike(self, data: dict):
-        """Handle volume spike events"""
-        symbol = data.get('symbol', 'unknown')
-        volume_ratio = data.get('volume_ratio', 0)
-        volume = data.get('volume', 0)
-        
-        self.logger.info(f"📊 Volume spike: {symbol} volume {volume_ratio:.1f}x average ({volume:,} shares)")
-        
-        # Check for unusual activity
-        if volume_ratio > 3.0:
-            self.logger.warning(f"⚠️ Extreme volume spike on {symbol}: {volume_ratio:.1f}x normal")
-    
-    async def _handle_scheduled_event(self, data: dict):
-        """Handle scheduled events"""
-        event_type = data.get('event_type', 'unknown')
-        schedule = data.get('schedule', '')
-        
-        self.logger.info(f"⏰ Scheduled event: {event_type} at {schedule}")
-        
-        # Handle different scheduled events
-        if event_type == 'market_open':
-            await self._handle_market_open()
-        elif event_type == 'market_close':
-            await self._handle_market_close()
-        elif event_type == 'daily_analysis':
-            await self._handle_daily_analysis()
-        elif event_type == 'weekly_scan':
-            await self._handle_weekly_scan()
-    
-    async def _handle_market_open(self):
-        """Handle market open event"""
-        self.logger.info("🔔 Market opened - Starting analysis")
-        # Initialize daily tracking
-        if hasattr(self, 'portfolio_optimizer') and self.portfolio_optimizer:
-            try:
-                await self.portfolio_optimizer.prepare_for_trading_day()
-            except Exception as e:
-                self.logger.debug(f"Error preparing for trading day: {e}")
-    
-    async def _handle_market_close(self):
-        """Handle market close event"""
-        self.logger.info("🔔 Market closed - Running end-of-day analysis")
-        # Run learning cycle at market close
-        await self.run_learning_cycle()
-    
-    async def _handle_daily_analysis(self):
-        """Handle daily analysis event"""
-        self.logger.info("📈 Running daily analysis")
-        # Trigger comprehensive market analysis
-        if hasattr(self, 'analysis_orchestrator') and self.analysis_orchestrator:
-            try:
-                await self.analysis_orchestrator.run_comprehensive_analysis()
-            except Exception as e:
-                self.logger.error(f"Error in daily analysis: {e}")
-    
-    async def _handle_weekly_scan(self):
-        """Handle weekly scan event"""
-        self.logger.info("🔍 Running weekly market scan")
-        # Run portfolio rebalancing
-        if hasattr(self, 'portfolio_optimizer') and self.portfolio_optimizer:
-            try:
-                await self.portfolio_optimizer.rebalance_portfolio()
-            except Exception as e:
-                self.logger.error(f"Error in weekly rebalancing: {e}")
     
     async def _update_system_metrics(self):
         """Update system performance metrics"""
@@ -379,8 +269,7 @@ class AgenticTradingSystem:
                                 f"S={weights.get('sentiment', 33):.0f}, "
                                 f"F={weights.get('fundamental', 34):.0f}")
             if triggers:
-                trigger_list = triggers.get('triggers', [])
-                self.logger.debug(f"  Triggers: {len(trigger_list)} configured")
+                self.logger.debug(f"  Triggers: {len(triggers.get('triggers', {}))} configured")
             
             self.last_metrics_update = now
     
@@ -446,18 +335,17 @@ class AgenticTradingSystem:
             # Generate simple recommendations based on current config
             if current_weights:
                 weights = current_weights.get('regime_weights', {}).get('default', {})
-                if weights:
-                    technical = weights.get('technical', 33)
-                    sentiment = weights.get('sentiment', 33)
-                    fundamental = weights.get('fundamental', 34)
-                    
-                    # Check if weights are balanced (all around 33%)
-                    if abs(technical - sentiment) < 10 and abs(technical - fundamental) < 10:
-                        analysis_results['recommendations'].append({
-                            'type': 'weight_adjustment',
-                            'message': 'Weights are very balanced. Consider optimizing based on recent performance.',
-                            'priority': 'low'
-                        })
+                technical = weights.get('technical', 33)
+                sentiment = weights.get('sentiment', 33)
+                fundamental = weights.get('fundamental', 34)
+                
+                # Check if weights are balanced (all around 33%)
+                if abs(technical - sentiment) < 10 and abs(technical - fundamental) < 10:
+                    analysis_results['recommendations'].append({
+                        'type': 'weight_adjustment',
+                        'message': 'Weights are very balanced. Consider optimizing based on recent performance.',
+                        'priority': 'low'
+                    })
             
             # Save learning results
             await self._save_learning_results(analysis_results)
@@ -494,12 +382,13 @@ class AgenticTradingSystem:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         
-        # Start the trigger orchestrator as a background task
+        # Start the trigger orchestrator if available
+        orchestrator_task = None
         if self.trigger_orchestrator:
             try:
-                # Create task for orchestrator
-                self.orchestrator_task = asyncio.create_task(
-                    self._run_orchestrator_with_error_handling()
+                # Run orchestrator in background
+                orchestrator_task = asyncio.create_task(
+                    self.trigger_orchestrator.start()
                 )
                 self.logger.info("✅ Trigger orchestrator started")
             except Exception as e:
@@ -516,26 +405,15 @@ class AgenticTradingSystem:
                 
                 # Log status every 10 cycles
                 if cycle_count % 10 == 0:
-                    uptime = datetime.now() - self.start_time
-                    self.logger.info(f"📊 System status: {cycle_count} cycles completed, uptime: {uptime}")
-                    
-                    # Check orchestrator health
-                    if self.orchestrator_task and self.orchestrator_task.done():
-                        exc = self.orchestrator_task.exception()
-                        if exc:
-                            self.logger.error(f"Orchestrator task failed: {exc}")
-                            # Restart orchestrator
-                            self.orchestrator_task = asyncio.create_task(
-                                self._run_orchestrator_with_error_handling()
-                            )
-                            self.logger.info("🔄 Orchestrator restarted")
+                    self.logger.info(f"📊 System status: {cycle_count} cycles completed, "
+                                   f"uptime: {datetime.now() - self.start_time}")
                 
                 # Check if learning cycle is due
                 hours_since_learning = (datetime.now() - self.last_learning_run).total_seconds() / 3600
                 if hours_since_learning >= self.learning_config.get('interval_hours', 24):
                     await self.run_learning_cycle()
                 
-                # Sleep for 60 seconds between cycles
+                # Sleep for 60 seconds
                 await asyncio.sleep(60)
                 
             except asyncio.CancelledError:
@@ -546,18 +424,14 @@ class AgenticTradingSystem:
                 await asyncio.sleep(60)  # Wait before retry
         
         # Cleanup
+        if orchestrator_task:
+            orchestrator_task.cancel()
+            try:
+                await orchestrator_task
+            except asyncio.CancelledError:
+                pass
+        
         await self._graceful_shutdown()
-    
-    async def _run_orchestrator_with_error_handling(self):
-        """Run orchestrator with error handling and auto-restart"""
-        try:
-            await self.trigger_orchestrator.start()
-        except asyncio.CancelledError:
-            self.logger.info("Orchestrator task cancelled")
-            raise
-        except Exception as e:
-            self.logger.error(f"Orchestrator crashed: {e}", exc_info=True)
-            # Don't auto-restart here, let main loop handle it
     
     def _print_config_summary(self):
         """Print configuration summary"""
@@ -566,8 +440,7 @@ class AgenticTradingSystem:
         # Trigger config
         triggers = self.settings.get_triggers()
         if triggers:
-            trigger_list = triggers.get('triggers', [])
-            trigger_count = len(trigger_list)
+            trigger_count = len(triggers.get('triggers', {}))
             self.logger.info(f"  - Triggers: {trigger_count} configured")
         else:
             self.logger.info(f"  - Triggers: Using defaults")
@@ -596,12 +469,6 @@ class AgenticTradingSystem:
         # Learning config
         self.logger.info(f"  - Learning: {self.learning_config.get('mode', 'continuous')} mode, "
                         f"every {self.learning_config.get('interval_hours', 24)} hours")
-        
-        # Component status
-        components_ready = sum(1 for name in ['search_aggregator', 'quality_gates', 'analysis_orchestrator', 
-                                              'risk_manager', 'portfolio_optimizer', 'alert_manager', 'execution_engine']
-                              if getattr(self, name, None) is not None)
-        self.logger.info(f"  - Components: {components_ready}/7 ready")
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals"""
@@ -620,39 +487,12 @@ class AgenticTradingSystem:
             except Exception as e:
                 self.logger.warning(f"Error stopping orchestrator: {e}")
         
-        # Cancel orchestrator task
-        if self.orchestrator_task and not self.orchestrator_task.done():
-            self.orchestrator_task.cancel()
-            try:
-                await self.orchestrator_task
-            except asyncio.CancelledError:
-                pass
-        
-        # Stop other components
-        for name in ['analysis_orchestrator', 'portfolio_optimizer', 'execution_engine']:
-            component = getattr(self, name, None)
-            if component and hasattr(component, 'stop'):
-                try:
-                    if asyncio.iscoroutinefunction(component.stop):
-                        await component.stop()
-                    else:
-                        component.stop()
-                    self.logger.info(f"{name} stopped")
-                except Exception as e:
-                    self.logger.debug(f"Error stopping {name}: {e}")
-        
         uptime = datetime.now() - self.start_time
         self.logger.info(f"✅ System shutdown complete. Uptime: {uptime}")
     
     def run_sync(self):
         """Synchronous wrapper for running the system"""
-        try:
-            asyncio.run(self.run_continuous())
-        except KeyboardInterrupt:
-            self.logger.info("System interrupted by user")
-        except Exception as e:
-            self.logger.error(f"Fatal error: {e}", exc_info=True)
-            raise
+        asyncio.run(self.run_continuous())
 
 
 def main():
@@ -705,3 +545,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
