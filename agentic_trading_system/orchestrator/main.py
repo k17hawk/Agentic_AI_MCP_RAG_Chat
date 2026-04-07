@@ -40,27 +40,41 @@ class AgenticTradingSystem:
     def __init__(self, config_dir: str = "config"):
         """Initialize the trading system with all components"""
         
-        # ✅ Initialize settings FIRST
+        # Initialize settings FIRST
         self.settings = Settings()
         
-        # ✅ Setup logging SECOND (needs settings)
+        # Setup logging SECOND (needs settings)
         self.logger = self._setup_logging()
         
-        # ✅ Initialize other attributes
+        # Initialize other attributes
         self.config_dir = config_dir
         self.start_time = datetime.now()
         self.running = True
         self.last_metrics_update = datetime.now()
         self.last_learning_run = datetime.now()
         
-        # ✅ Initialize components THIRD (needs logger and settings)
+        # Initialize components as None (will be initialized in _init_components)
+        self.trigger_orchestrator = None
+        self.search_aggregator = None
+        self.quality_gates = None
+        self.analysis_orchestrator = None
+        self.risk_manager = None
+        self.portfolio_optimizer = None
+        self.alert_manager = None
+        self.execution_engine = None
+        self.memory = None
+        self.rejected_logger = None
+        self.passed_queue = None
+        self.risk_approved_queue = None
+        self.timeout_manager = None
+        self.order_manager = None
+        
+        # Initialize components synchronously
         self._init_components()
         
-        # ✅ Load learning config LAST
+        # Load learning config LAST
         self.learning_config = self._load_or_create_learning_config()
     
-
-
     def _load_or_create_learning_config(self) -> dict:
         """Load learning config or create default one"""
         learning_config_path = self.settings.config_dir / "learning_config.yaml"
@@ -150,14 +164,12 @@ class AgenticTradingSystem:
         return logger
     
     def _init_components(self):
-        """Initialize all trading system components"""
+        """Initialize all trading system components synchronously"""
         
         # Initialize Trigger Orchestrator
         try:
-            # Get trigger config from settings
             trigger_config = self.settings.get_triggers()
             
-            # Create trigger orchestrator
             self.trigger_orchestrator = TriggerOrchestrator(
                 memory_agent=None,
                 message_bus=None,
@@ -181,36 +193,76 @@ class AgenticTradingSystem:
         
         for name, component_class in components.items():
             try:
-                # Try to initialize with name and config
+                # Try initializing with name and config
                 instance = component_class(
                     name=name,
                     config={'enabled': True, 'log_level': 'INFO'}
                 )
                 setattr(self, name, instance)
                 self.logger.info(f"✅ {name} initialized")
-            except TypeError as e:
-                # Try without arguments
-                if "required positional arguments" in str(e):
-                    try:
-                        instance = component_class()
-                        setattr(self, name, instance)
-                        self.logger.info(f"✅ {name} initialized (no args)")
-                    except Exception as e2:
-                        self.logger.debug(f"Could not initialize {name} without args: {e2}")
-                        setattr(self, name, None)
-                else:
-                    self.logger.debug(f"Could not initialize {name}: {e}")
+            except TypeError:
+                try:
+                    # Try initializing without arguments
+                    instance = component_class()
+                    setattr(self, name, instance)
+                    self.logger.info(f"✅ {name} initialized (no args)")
+                except Exception as e2:
+                    self.logger.debug(f"Could not initialize {name}: {e2}")
                     setattr(self, name, None)
             except Exception as e:
                 self.logger.debug(f"Could not initialize {name}: {e}")
                 setattr(self, name, None)
         
-        # Create memory stub
-        self.memory = None
+        # Get references to sub-components for background tasks
+        if self.risk_manager and hasattr(self.risk_manager, 'approved_queue'):
+            self.risk_approved_queue = self.risk_manager.approved_queue
         
-        # Count successfully initialized components
-        initialized = sum(1 for name in components if getattr(self, name, None) is not None)
-        self.logger.info(f"✅ Component initialization completed ({initialized}/{len(components)} components ready)")
+        if self.alert_manager and hasattr(self.alert_manager, 'timeout_manager'):
+            self.timeout_manager = self.alert_manager.timeout_manager
+        
+        if self.execution_engine and hasattr(self.execution_engine, 'order_manager'):
+            self.order_manager = self.execution_engine.order_manager
+        
+        if self.quality_gates and hasattr(self.quality_gates, 'passed_queue'):
+            self.passed_queue = self.quality_gates.passed_queue
+        
+        # Count components
+        component_names = list(components.keys())
+        initialized = sum(1 for name in component_names if getattr(self, name, None) is not None)
+        self.logger.info(f"✅ Component initialization completed ({initialized}/{len(component_names)} components ready)")
+    
+    async def _start_background_tasks(self):
+        """Start background tasks for components that need them"""
+        
+        background_components = [
+            ('rejected_logger', getattr(self.quality_gates, 'rejected_logger', None) if self.quality_gates else None),
+            ('risk_approved_queue', self.risk_approved_queue),
+            ('timeout_manager', self.timeout_manager),
+            ('order_manager', self.order_manager),
+            ('passed_queue', self.passed_queue),
+        ]
+        
+        for name, component in background_components:
+            if component:
+                # Try each possible startup method
+                if hasattr(component, 'ensure_expiry_started'):
+                    try:
+                        await component.ensure_expiry_started()
+                        self.logger.debug(f"Started expiry checker for {name}")
+                    except Exception as e:
+                        self.logger.debug(f"Could not start expiry checker for {name}: {e}")
+                elif hasattr(component, 'ensure_cleanup_started'):
+                    try:
+                        await component.ensure_cleanup_started()
+                        self.logger.debug(f"Started cleanup for {name}")
+                    except Exception as e:
+                        self.logger.debug(f"Could not start cleanup for {name}: {e}")
+                elif hasattr(component, 'ensure_checker_started'):
+                    try:
+                        await component.ensure_checker_started()
+                        self.logger.debug(f"Started checker for {name}")
+                    except Exception as e:
+                        self.logger.debug(f"Could not start checker for {name}: {e}")
     
     async def process_market_cycle(self):
         """Execute one complete market analysis cycle"""
@@ -378,7 +430,10 @@ class AgenticTradingSystem:
         # Print configuration summary
         self._print_config_summary()
         
-        # Register signal handlers for graceful shutdown
+        # Start background tasks for components
+        await self._start_background_tasks()
+        
+        # Register signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         
@@ -386,34 +441,29 @@ class AgenticTradingSystem:
         orchestrator_task = None
         if self.trigger_orchestrator:
             try:
-                # Run orchestrator in background
-                orchestrator_task = asyncio.create_task(
-                    self.trigger_orchestrator.start()
-                )
+                orchestrator_task = asyncio.create_task(self.trigger_orchestrator.start())
                 self.logger.info("✅ Trigger orchestrator started")
             except Exception as e:
                 self.logger.error(f"Failed to start orchestrator: {e}")
         
-        # Main loop counter
+        # Main loop
         cycle_count = 0
-        
         while self.running:
             try:
-                # Execute market cycle
                 await self.process_market_cycle()
                 cycle_count += 1
                 
-                # Log status every 10 cycles
                 if cycle_count % 10 == 0:
-                    self.logger.info(f"📊 System status: {cycle_count} cycles completed, "
-                                   f"uptime: {datetime.now() - self.start_time}")
+                    self.logger.info(f"📊 System status: {cycle_count} cycles completed, uptime: {datetime.now() - self.start_time}")
                 
-                # Check if learning cycle is due
+                # Run learning cycle at configured interval
                 hours_since_learning = (datetime.now() - self.last_learning_run).total_seconds() / 3600
                 if hours_since_learning >= self.learning_config.get('interval_hours', 24):
                     await self.run_learning_cycle()
                 
-                # Sleep for 60 seconds
+                # Update metrics periodically
+                await self._update_system_metrics()
+                
                 await asyncio.sleep(60)
                 
             except asyncio.CancelledError:
@@ -421,7 +471,7 @@ class AgenticTradingSystem:
                 break
             except Exception as e:
                 self.logger.error(f"Unexpected error in main loop: {e}", exc_info=True)
-                await asyncio.sleep(60)  # Wait before retry
+                await asyncio.sleep(60)
         
         # Cleanup
         if orchestrator_task:
@@ -545,4 +595,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

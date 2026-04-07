@@ -1,224 +1,144 @@
 """
-Risk Approved Queue - Queue of trades that passed risk checks
+Risk Approved Queue - Manages risk-approved candidates with expiry
 """
-from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
-import asyncio
-from collections import deque
-import heapq
 
-from agentic_trading_system.utils.logger import logger as  logging
+import asyncio
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
+from loguru import logger
+
+
+@dataclass
+class ApprovedItem:
+    """Risk-approved trading candidate"""
+    ticker: str
+    action: str
+    shares: int
+    price: float
+    stop_loss: float
+    take_profit: float
+    confidence: float
+    timestamp: datetime
+    expiry: datetime
+    metadata: Dict
+
 
 class RiskApprovedQueue:
-    """
-    Priority queue for trades that passed risk checks
+    """Queue for risk-approved items with expiry handling"""
     
-    Features:
-    - Priority based on risk score (lower risk = higher priority)
-    - Expiry of old items
-    - Duplicate prevention
-    - Queue statistics
-    """
-    
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
+    def __init__(self, expiry_minutes: int = 30):
+        self.expiry_minutes = expiry_minutes
+        self.approved_items: Dict[str, ApprovedItem] = {}
         
-        # Queue configuration
-        self.max_size = config.get("max_size", 500)
-        self.item_ttl_seconds = config.get("item_ttl_seconds", 300)  # 5 minutes default
-        
-        # Priority queue (min-heap based on risk score)
-        self.queue = []  # List of (risk_score, timestamp, item)
-        self.ticker_set = set()  # For quick duplicate checking
-        
-        # Statistics
-        self.stats = {
-            "total_added": 0,
-            "total_removed": 0,
-            "total_expired": 0,
-            "total_processed": 0
-        }
-        
-        # Start expiry checker
+        # Start expiry checker (FIXED)
+        self._expiry_task = None
         self._start_expiry_checker()
         
-        logging.info(f"✅ RiskApprovedQueue initialized with max size {self.max_size}")
-    
-    async def add(self, trade: Dict[str, Any]) -> bool:
-        """
-        Add a trade to the queue
-        Returns True if added, False if duplicate or queue full
-        """
-        ticker = trade.get("ticker")
-        if not ticker:
-            logging.warning("Attempted to add trade without ticker")
-            return False
-        
-        # Check for duplicates
-        if ticker in self.ticker_set:
-            self.stats["total_duplicates"] = self.stats.get("total_duplicates", 0) + 1
-            logging.debug(f"⏭️ {ticker} already in queue, skipping")
-            return False
-        
-        # Get risk score (lower is better)
-        risk_score = trade.get("risk_score", 0.5)
-        
-        # Add timestamp
-        timestamp = datetime.now()
-        expiry = timestamp + timedelta(seconds=self.item_ttl_seconds)
-        
-        # Add to priority queue (negative risk_score for min-heap)
-        heapq.heappush(self.queue, (risk_score, timestamp, trade))
-        self.ticker_set.add(ticker)
-        
-        self.stats["total_added"] += 1
-        
-        # Trim if needed
-        await self._trim_queue()
-        
-        logging.info(f"➕ Added {ticker} to risk queue (risk: {risk_score:.2f}, size: {len(self.queue)})")
-        return True
-    
-    async def get_next(self) -> Optional[Dict[str, Any]]:
-        """
-        Get the next trade from the queue (lowest risk first)
-        """
-        while self.queue:
-            # Peek at next item
-            risk_score, timestamp, trade = self.queue[0]
-            
-            # Check if expired
-            if datetime.now() > timestamp + timedelta(seconds=self.item_ttl_seconds):
-                heapq.heappop(self.queue)
-                self.ticker_set.discard(trade.get("ticker"))
-                self.stats["total_expired"] += 1
-                continue
-            
-            # Get the item
-            heapq.heappop(self.queue)
-            self.ticker_set.discard(trade.get("ticker"))
-            self.stats["total_removed"] += 1
-            
-            logging.info(f"➡️ Retrieved {trade.get('ticker')} from risk queue (risk: {risk_score:.2f})")
-            return trade
-        
-        return None
-    
-    async def get_all(self) -> List[Dict[str, Any]]:
-        """
-        Get all items in the queue (sorted by risk)
-        """
-        # Create a copy and sort
-        items = [(score, ts, trade) for score, ts, trade in self.queue]
-        items.sort(key=lambda x: x[0])  # Sort by risk score
-        
-        # Filter expired
-        now = datetime.now()
-        valid_items = []
-        
-        for score, ts, trade in items:
-            if now <= ts + timedelta(seconds=self.item_ttl_seconds):
-                valid_items.append(trade)
-        
-        return valid_items
-    
-    async def remove(self, ticker: str) -> bool:
-        """
-        Remove a specific ticker from queue
-        """
-        # Rebuild queue without the ticker
-        new_queue = []
-        removed = False
-        
-        for score, ts, trade in self.queue:
-            if trade.get("ticker") != ticker:
-                new_queue.append((score, ts, trade))
-            else:
-                removed = True
-                self.ticker_set.discard(ticker)
-        
-        if removed:
-            # Re-heapify
-            self.queue = new_queue
-            heapq.heapify(self.queue)
-            self.stats["total_removed"] += 1
-            logging.info(f"➖ Removed {ticker} from risk queue")
-        
-        return removed
-    
-    def size(self) -> int:
-        """Get current queue size"""
-        return len(self.queue)
-    
-    def is_empty(self) -> bool:
-        """Check if queue is empty"""
-        return len(self.queue) == 0
-    
-    async def _trim_queue(self):
-        """Trim queue to max size"""
-        if len(self.queue) <= self.max_size:
-            return
-        
-        # Remove oldest/highest risk items
-        excess = len(self.queue) - self.max_size
-        
-        # Sort by timestamp (oldest first) and risk score (highest first)
-        items = [(ts, score, trade) for score, ts, trade in self.queue]
-        items.sort(key=lambda x: (x[0], -x[1]))  # Oldest first, then highest risk
-        
-        # Remove excess
-        for i in range(excess):
-            ts, score, trade = items[i]
-            self.ticker_set.discard(trade.get("ticker"))
-            self.stats["total_removed"] += 1
-        
-        # Rebuild queue
-        self.queue = [(score, ts, trade) for ts, score, trade in items[excess:]]
-        heapq.heapify(self.queue)
+        logger.info(f"✅ RiskApprovedQueue initialized (expiry: {expiry_minutes} minutes)")
     
     def _start_expiry_checker(self):
-        """Start background task to remove expired items"""
-        async def check_expiry():
-            while True:
-                await asyncio.sleep(30)  # Check every 30 seconds
+        """Start the expiry checker coroutine properly"""
+        try:
+            loop = asyncio.get_running_loop()
+            self._expiry_task = asyncio.create_task(self._check_expiry())
+            logger.debug("Started expiry checker in running event loop")
+        except RuntimeError:
+            logger.debug("No running event loop, expiry checker will start when loop is available")
+            self._need_expiry_start = True
+    
+    async def ensure_expiry_started(self):
+        """Ensure expiry checker is started (call this when event loop is running)"""
+        if not hasattr(self, '_expiry_task') or self._expiry_task is None:
+            self._expiry_task = asyncio.create_task(self._check_expiry())
+            logger.info("✅ Expiry checker started")
+    
+    async def _check_expiry(self):
+        """Background task to remove expired items"""
+        while True:
+            try:
+                await asyncio.sleep(60)  # Check every minute
                 await self._remove_expired()
-        
-        asyncio.create_task(check_expiry())
+            except asyncio.CancelledError:
+                logger.info("Expiry checker cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in expiry checker: {e}")
     
     async def _remove_expired(self):
         """Remove expired items from queue"""
         now = datetime.now()
-        expired_count = 0
+        expired = []
         
-        # Rebuild queue without expired items
-        new_queue = []
+        for key, item in self.approved_items.items():
+            if item.expiry < now:
+                expired.append(key)
         
-        for score, ts, trade in self.queue:
-            if now <= ts + timedelta(seconds=self.item_ttl_seconds):
-                new_queue.append((score, ts, trade))
-            else:
-                self.ticker_set.discard(trade.get("ticker"))
-                expired_count += 1
+        for key in expired:
+            del self.approved_items[key]
+            logger.info(f"⏰ Expired: {key}")
         
-        if expired_count > 0:
-            self.queue = new_queue
-            heapq.heapify(self.queue)
-            self.stats["total_expired"] += expired_count
-            logging.debug(f"⏰ Removed {expired_count} expired items from risk queue")
+        if expired:
+            logger.debug(f"Removed {len(expired)} expired items, {len(self.approved_items)} remaining")
     
-    def get_stats(self) -> Dict[str, Any]:
+    async def add(self, item: ApprovedItem) -> str:
+        """Add an approved item to the queue"""
+        key = f"{item.ticker}_{item.timestamp.timestamp()}"
+        self.approved_items[key] = item
+        logger.info(f"✅ Added {item.ticker} to approved queue (expires at {item.expiry})")
+        return key
+    
+    async def get(self, ticker: str) -> Optional[ApprovedItem]:
+        """Get the most recent approved item for a ticker"""
+        # Find all items for this ticker
+        ticker_items = [
+            (key, item) for key, item in self.approved_items.items()
+            if item.ticker == ticker
+        ]
+        
+        if not ticker_items:
+            return None
+        
+        # Return the most recent (by timestamp)
+        ticker_items.sort(key=lambda x: x[1].timestamp, reverse=True)
+        return ticker_items[0][1]
+    
+    async def remove(self, ticker: str):
+        """Remove all items for a ticker"""
+        keys_to_remove = [key for key, item in self.approved_items.items() if item.ticker == ticker]
+        for key in keys_to_remove:
+            del self.approved_items[key]
+        
+        if keys_to_remove:
+            logger.info(f"Removed {len(keys_to_remove)} items for {ticker}")
+    
+    async def get_all(self) -> List[ApprovedItem]:
+        """Get all approved items"""
+        return list(self.approved_items.values())
+    
+    async def get_stats(self) -> Dict:
         """Get queue statistics"""
         return {
-            **self.stats,
-            "current_size": len(self.queue),
-            "unique_tickers": len(self.ticker_set),
-            "max_size": self.max_size,
-            "ttl_seconds": self.item_ttl_seconds,
-            "utilization": len(self.queue) / self.max_size if self.max_size > 0 else 0
+            'total_approved': len(self.approved_items),
+            'unique_tickers': len(set(item.ticker for item in self.approved_items.values())),
+            'expiry_minutes': self.expiry_minutes,
+            'items': [
+                {
+                    'ticker': item.ticker,
+                    'action': item.action,
+                    'expires_at': item.expiry.isoformat(),
+                    'time_remaining': (item.expiry - datetime.now()).total_seconds() / 60
+                }
+                for item in self.approved_items.values()
+            ]
         }
     
-    async def clear(self):
-        """Clear the entire queue"""
-        self.queue = []
-        self.ticker_set.clear()
-        logging.info("🧹 Cleared risk approved queue")
+    async def stop(self):
+        """Stop the expiry checker"""
+        if self._expiry_task:
+            self._expiry_task.cancel()
+            try:
+                await self._expiry_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("RiskApprovedQueue stopped")

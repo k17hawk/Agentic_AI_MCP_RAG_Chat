@@ -1,187 +1,182 @@
 """
-Timeout Manager - Handles timeouts for pending approvals
+Timeout Manager - Handles HITL approval timeouts
 """
-from typing import Dict, List, Optional, Any, Callable
-from datetime import datetime, timedelta
+
 import asyncio
-from agentic_trading_system.utils.logger import logger as logging
+from datetime import datetime, timedelta
+from typing import Dict, Optional, Any, Callable
+from dataclasses import dataclass
+from loguru import logger
+
+
+@dataclass
+class PendingApproval:
+    """Pending approval request"""
+    request_id: str
+    ticker: str
+    action: str
+    timestamp: datetime
+    expiry: datetime
+    callback: Optional[Callable] = None
+    metadata: Dict = None
+
 
 class TimeoutManager:
-    """
-    Timeout Manager - Handles timeouts for pending approvals
+    """Manages timeouts for human-in-the-loop approvals"""
     
-    Features:
-    - Per-item timeouts
-    - Reminder scheduling
-    - Escalation paths
-    - Auto-rejection on timeout
-    """
-    
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
+    def __init__(self, default_timeout_minutes: int = 5):
+        self.default_timeout_minutes = default_timeout_minutes
+        self.pending_approvals: Dict[str, PendingApproval] = {}
         
-        # Timeout configuration
-        self.default_timeout = config.get("default_timeout_seconds", 300)  # 5 minutes
-        self.reminder_interval = config.get("reminder_interval_seconds", 600)  # 1 minute
-        self.max_reminders = config.get("max_reminders", 3)
-        self.escalation_delay = config.get("escalation_delay_seconds", 600)  # 10 minutes
-        
-        # Trackers
-        self.timeouts = {}  # item_id -> timeout_info
-        self.reminders = {}  # item_id -> reminder_count
-        
-        # Callbacks
-        self.on_timeout_callback = None
-        self.on_reminder_callback = None
-        
-        # Start checker
-        self.checker_task = None
+        # Start timeout checker (FIXED)
+        self._checker_task = None
         self._start_checker()
         
-        logging.info(f"✅ TimeoutManager initialized")
-    
-    def register_timeout(self, item_id: str, timeout_seconds: int = None, 
-                        data: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        Register an item for timeout tracking
-        """
-        timeout = timeout_seconds or self.default_timeout
-        now = datetime.now()
-        
-        timeout_info = {
-            "item_id": item_id,
-            "data": data or {},
-            "created_at": now.isoformat(),
-            "timeout_at": (now + timedelta(seconds=timeout)).isoformat(),
-            "reminder_sent": 0,
-            "reminder_at": (now + timedelta(seconds=self.reminder_interval)).isoformat(),
-            "escalated": False,
-            "status": "active"
-        }
-        
-        self.timeouts[item_id] = timeout_info
-        self.reminders[item_id] = 0
-        
-        logging.info(f"⏲️ Timeout registered for {item_id} ({timeout}s)")
-        
-        return timeout_info
-    
-    async def cancel_timeout(self, item_id: str) -> bool:
-        """Cancel timeout tracking for an item"""
-        if item_id in self.timeouts:
-            self.timeouts[item_id]["status"] = "cancelled"
-            del self.timeouts[item_id]
-            if item_id in self.reminders:
-                del self.reminders[item_id]
-            logging.info(f"⏹️ Timeout cancelled for {item_id}")
-            return True
-        return False
-    
-    def set_timeout_callback(self, callback: Callable):
-        """Set callback for timeout events"""
-        self.on_timeout_callback = callback
-    
-    def set_reminder_callback(self, callback: Callable):
-        """Set callback for reminder events"""
-        self.on_reminder_callback = callback
-    
-    def get_remaining_time(self, item_id: str) -> Optional[int]:
-        """Get remaining time in seconds for an item"""
-        if item_id not in self.timeouts:
-            return None
-        
-        timeout_info = self.timeouts[item_id]
-        timeout_at = datetime.fromisoformat(timeout_info["timeout_at"])
-        remaining = (timeout_at - datetime.now()).total_seconds()
-        
-        return max(0, int(remaining))
+        logger.info(f"✅ TimeoutManager initialized (default timeout: {default_timeout_minutes} minutes)")
     
     def _start_checker(self):
-        """Start the timeout checker task"""
-        async def check_loop():
-            while True:
-                await asyncio.sleep(1)  # Check every second
-                await self._check_timeouts()
-        
-        self.checker_task = asyncio.create_task(check_loop())
+        """Start the timeout checker coroutine properly"""
+        try:
+            loop = asyncio.get_running_loop()
+            self._checker_task = asyncio.create_task(self._check_loop())
+            logger.debug("Started timeout checker in running event loop")
+        except RuntimeError:
+            logger.debug("No running event loop, timeout checker will start when loop is available")
+            self._need_checker_start = True
     
-    async def _check_timeouts(self):
-        """Check for timeouts and reminders"""
+    async def ensure_checker_started(self):
+        """Ensure timeout checker is started (call this when event loop is running)"""
+        if not hasattr(self, '_checker_task') or self._checker_task is None:
+            self._checker_task = asyncio.create_task(self._check_loop())
+            logger.info("✅ Timeout checker started")
+    
+    async def _check_loop(self):
+        """Background task to check for timeouts"""
+        while True:
+            try:
+                await asyncio.sleep(30)  # Check every 30 seconds
+                await self._process_timeouts()
+            except asyncio.CancelledError:
+                logger.info("Timeout checker cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in timeout checker: {e}")
+    
+    async def _process_timeouts(self):
+        """Process timed-out approvals"""
+        now = datetime.now()
+        timed_out = []
+        
+        for request_id, approval in self.pending_approvals.items():
+            if approval.expiry < now:
+                timed_out.append(request_id)
+                logger.info(f"⏰ Request {request_id} for {approval.ticker} timed out")
+                
+                # Execute timeout callback if provided
+                if approval.callback:
+                    try:
+                        if asyncio.iscoroutinefunction(approval.callback):
+                            await approval.callback(approval.request_id, timeout=True)
+                        else:
+                            approval.callback(approval.request_id, timeout=True)
+                    except Exception as e:
+                        logger.error(f"Error in timeout callback: {e}")
+        
+        # Remove timed out approvals
+        for request_id in timed_out:
+            del self.pending_approvals[request_id]
+    
+    async def add_request(
+        self,
+        request_id: str,
+        ticker: str,
+        action: str,
+        timeout_minutes: Optional[int] = None,
+        callback: Optional[Callable] = None,
+        metadata: Optional[Dict] = None
+    ) -> PendingApproval:
+        """Add a pending approval request"""
+        timeout = timeout_minutes or self.default_timeout_minutes
         now = datetime.now()
         
-        for item_id, timeout_info in list(self.timeouts.items()):
-            if timeout_info["status"] != "active":
-                continue
-            
-            timeout_at = datetime.fromisoformat(timeout_info["timeout_at"])
-            
-            # Check for timeout
-            if now >= timeout_at:
-                await self._handle_timeout(item_id)
-                continue
-            
-            # Check for reminder
-            reminder_at = datetime.fromisoformat(timeout_info["reminder_at"])
-            reminder_count = timeout_info["reminder_sent"]
-            
-            if now >= reminder_at and reminder_count < self.max_reminders:
-                await self._send_reminder(item_id)
+        approval = PendingApproval(
+            request_id=request_id,
+            ticker=ticker,
+            action=action,
+            timestamp=now,
+            expiry=now + timedelta(minutes=timeout),
+            callback=callback,
+            metadata=metadata or {}
+        )
+        
+        self.pending_approvals[request_id] = approval
+        logger.info(f"📝 Added request {request_id} for {ticker} (timeout: {timeout} minutes)")
+        
+        return approval
     
-    async def _handle_timeout(self, item_id: str):
-        """Handle a timeout event"""
-        timeout_info = self.timeouts.get(item_id)
-        if not timeout_info:
-            return
+    async def resolve_request(self, request_id: str, approved: bool) -> bool:
+        """Resolve a pending request (approve or reject)"""
+        if request_id not in self.pending_approvals:
+            logger.warning(f"Request {request_id} not found")
+            return False
         
-        timeout_info["status"] = "timeout"
-        timeout_info["timeout_occurred_at"] = datetime.now().isoformat()
+        approval = self.pending_approvals[request_id]
         
-        logging.warning(f"⏰ Timeout occurred for {item_id}")
+        if approved:
+            logger.info(f"✅ Request {request_id} for {approval.ticker} approved")
+        else:
+            logger.info(f"❌ Request {request_id} for {approval.ticker} rejected")
         
-        # Call callback if set
-        if self.on_timeout_callback:
+        # Execute callback if provided
+        if approval.callback:
             try:
-                if asyncio.iscoroutinefunction(self.on_timeout_callback):
-                    await self.on_timeout_callback(item_id, timeout_info["data"])
+                if asyncio.iscoroutinefunction(approval.callback):
+                    await approval.callback(request_id, approved=approved)
                 else:
-                    self.on_timeout_callback(item_id, timeout_info["data"])
+                    approval.callback(request_id, approved=approved)
             except Exception as e:
-                logging.error(f"Error in timeout callback: {e}")
+                logger.error(f"Error in resolution callback: {e}")
         
-        # Remove from tracking
-        del self.timeouts[item_id]
-        if item_id in self.reminders:
-            del self.reminders[item_id]
+        # Remove from pending
+        del self.pending_approvals[request_id]
+        return True
     
-    async def _send_reminder(self, item_id: str):
-        """Send a reminder"""
-        timeout_info = self.timeouts.get(item_id)
-        if not timeout_info:
-            return
+    async def is_pending(self, request_id: str) -> bool:
+        """Check if a request is still pending"""
+        return request_id in self.pending_approvals
+    
+    async def get_pending(self, ticker: Optional[str] = None) -> list:
+        """Get pending requests"""
+        if ticker:
+            return [
+                approval for approval in self.pending_approvals.values()
+                if approval.ticker == ticker
+            ]
+        return list(self.pending_approvals.values())
+    
+    async def get_stats(self) -> Dict:
+        """Get timeout manager statistics"""
+        now = datetime.now()
         
-        # Update reminder info
-        reminder_count = timeout_info["reminder_sent"] + 1
-        timeout_info["reminder_sent"] = reminder_count
-        
-        # Schedule next reminder
-        next_reminder = datetime.now() + timedelta(seconds=self.reminder_interval)
-        timeout_info["reminder_at"] = next_reminder.isoformat()
-        
-        logging.info(f"🔔 Sending reminder {reminder_count} for {item_id}")
-        
-        # Call callback if set
-        if self.on_reminder_callback:
-            try:
-                data = {
-                    "item_id": item_id,
-                    "reminder_count": reminder_count,
-                    "max_reminders": self.max_reminders,
-                    "data": timeout_info["data"]
+        return {
+            'pending_count': len(self.pending_approvals),
+            'default_timeout_minutes': self.default_timeout_minutes,
+            'pending_requests': [
+                {
+                    'request_id': req.request_id,
+                    'ticker': req.ticker,
+                    'expires_in': (req.expiry - now).total_seconds() / 60
                 }
-                
-                if asyncio.iscoroutinefunction(self.on_reminder_callback):
-                    await self.on_reminder_callback(data)
-                else:
-                    self.on_reminder_callback(data)
-            except Exception as e:
-                logging.error(f"Error in reminder callback: {e}")
+                for req in self.pending_approvals.values()
+            ]
+        }
+    
+    async def stop(self):
+        """Stop the timeout checker"""
+        if self._checker_task:
+            self._checker_task.cancel()
+            try:
+                await self._checker_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("TimeoutManager stopped")

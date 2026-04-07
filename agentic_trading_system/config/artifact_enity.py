@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
@@ -8,9 +7,6 @@ import os
 from pathlib import Path
 
 
-# =============================================================================
-# Base Artifacts
-# =============================================================================
 @dataclass
 class BaseArtifact:
     """Base artifact with common fields."""
@@ -90,10 +86,6 @@ class SourceResult(BaseArtifact):
             "timestamp": self.timestamp.isoformat()
         }
 
-
-# =============================================================================
-# Entity Extraction Artifact
-# =============================================================================
 @dataclass
 class EntityExtractionArtifact(BaseArtifact):
     """Result from entity extraction."""
@@ -157,9 +149,6 @@ class EntityExtractionArtifact(BaseArtifact):
         )
 
 
-# =============================================================================
-# Enriched Item Artifact
-# =============================================================================
 @dataclass
 class EnrichedItemArtifact(SearchResultItem):
     """Enriched search result with additional context."""
@@ -307,10 +296,6 @@ class DiscoveryArtifact(BaseArtifact):
         
         with open(artifact_file, "r") as f:
             data = json.load(f)
-        
-        # Reconstruct from dict
-        # This would need proper deserialization logic
-        # For now, we'll return a basic artifact
         
         artifact = cls(
             run_id=data.get("run_id", ""),

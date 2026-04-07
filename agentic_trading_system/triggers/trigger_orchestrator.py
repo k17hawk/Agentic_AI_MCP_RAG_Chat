@@ -28,18 +28,16 @@ class TriggerOrchestrator:
         self.message_bus = message_bus
         self.max_concurrent = max_concurrent_triggers
 
-        # Execution queue
-        self.event_queue: asyncio.Queue = asyncio.Queue()
-        self.priority_queues = {
-            TriggerPriority.CRITICAL: asyncio.Queue(),
-            TriggerPriority.HIGH: asyncio.Queue(),
-            TriggerPriority.MEDIUM: asyncio.Queue(),
-            TriggerPriority.LOW: asyncio.Queue()
-        }
+        # NOTE: asyncio.Queue and asyncio.Event MUST be created inside the
+        # running event loop (i.e. inside start()), NOT here in __init__.
+        # Creating them here (before asyncio.run() starts) binds them to no
+        # loop in Python 3.10+ and causes silent failures.
+        self.event_queue: Optional[asyncio.Queue] = None
+        self.priority_queues: Optional[Dict] = None
 
         # Control flags
         self.is_running = False
-        self._shutdown_event = asyncio.Event()
+        self._shutdown_event: Optional[asyncio.Event] = None
 
         # Statistics
         self.stats = {
@@ -197,6 +195,16 @@ class TriggerOrchestrator:
         self.is_running = True
         self.stats["start_time"] = datetime.utcnow()
 
+        # Create asyncio primitives
+        self.event_queue = asyncio.Queue()
+        self.priority_queues = {
+            TriggerPriority.CRITICAL: asyncio.Queue(),
+            TriggerPriority.HIGH: asyncio.Queue(),
+            TriggerPriority.MEDIUM: asyncio.Queue(),
+            TriggerPriority.LOW: asyncio.Queue()
+        }
+        self._shutdown_event = asyncio.Event()
+
         # Group triggers by priority
         triggers_by_priority = {
             TriggerPriority.CRITICAL: [],
@@ -206,20 +214,33 @@ class TriggerOrchestrator:
         }
 
         for trigger in self.triggers.values():
-            # Get priority as enum for grouping
+            # Get priority value - handle both int and enum
+            priority_value = 2  # Default MEDIUM
+            
             if hasattr(trigger.config, 'priority'):
                 if isinstance(trigger.config.priority, int):
-                    # Map int to enum
-                    priority_map = {1: TriggerPriority.LOW, 2: TriggerPriority.MEDIUM,
-                                    3: TriggerPriority.HIGH, 4: TriggerPriority.CRITICAL}
-                    priority = priority_map.get(trigger.config.priority, TriggerPriority.MEDIUM)
-                else:
-                    priority = trigger.config.priority
-            else:
-                priority = TriggerPriority.MEDIUM
-
+                    priority_value = trigger.config.priority
+                elif hasattr(trigger.config.priority, 'value'):
+                    priority_value = trigger.config.priority.value
+                elif isinstance(trigger.config.priority, str):
+                    # Handle string priority
+                    priority_str_map = {
+                        'LOW': 1, 'MEDIUM': 2, 'HIGH': 3, 'CRITICAL': 4
+                    }
+                    priority_value = priority_str_map.get(trigger.config.priority.upper(), 2)
+            
+            # Map integer priority to enum
+            priority_map = {
+                1: TriggerPriority.LOW,
+                2: TriggerPriority.MEDIUM,
+                3: TriggerPriority.HIGH,
+                4: TriggerPriority.CRITICAL
+            }
+            priority_enum = priority_map.get(priority_value, TriggerPriority.MEDIUM)
+            
             if trigger.config.enabled:
-                triggers_by_priority[priority].append(trigger)
+                triggers_by_priority[priority_enum].append(trigger)
+                logger.debug(f"Added {trigger.name} to {priority_enum.name} priority")
 
         # Start priority queue processors
         processor_tasks = []
@@ -239,7 +260,7 @@ class TriggerOrchestrator:
                     self._run_trigger_loop(trigger, priority)
                 )
                 trigger_tasks.append(task)
-                logger.info(f"Started trigger: {trigger.name}")
+                logger.info(f"Started trigger: {trigger.name} (Priority: {priority.name})")
 
         # Start health monitor
         health_task = asyncio.create_task(self._health_monitor())
@@ -255,6 +276,10 @@ class TriggerOrchestrator:
         logger.info("🛑 Shutting down Trigger Orchestrator")
         for task in trigger_tasks + processor_tasks + [health_task]:
             task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     async def _run_trigger_loop(self, trigger: BaseTrigger, priority: TriggerPriority):
         while self.is_running:
@@ -365,7 +390,8 @@ class TriggerOrchestrator:
     async def stop(self):
         logger.info("🛑 Stopping Trigger Orchestrator")
         self.is_running = False
-        self._shutdown_event.set()
+        if self._shutdown_event is not None:
+            self._shutdown_event.set()
         self.executor.shutdown(wait=True)
 
     def get_status(self) -> Dict[str, Any]:
@@ -377,7 +403,7 @@ class TriggerOrchestrator:
             "queue_sizes": {
                 p.name: q.qsize()
                 for p, q in self.priority_queues.items()
-            },
+            } if self.priority_queues else {},
             "uptime": str(datetime.utcnow() - self.stats["start_time"]) if self.stats["start_time"] else None
         }
 
@@ -389,6 +415,3 @@ class TriggerOrchestrator:
         if not config_path.exists():
             logger.error(f"❌ Config file not found: {config_path}")
             return []
-  
-
-  

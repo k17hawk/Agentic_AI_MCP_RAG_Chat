@@ -48,10 +48,7 @@ class DiscoveryConfigLoader:
         # Current working directory
         possible_paths.append(Path.cwd() / "config" / "discovery_config.yaml")
         possible_paths.append(Path.cwd() / "discovery_config.yaml")
-        
-        # Project root (where agentic_trading_system is located)
-        # This file is at: .../agentic_trading_system/config/loader.py
-        # So project root is 3 levels up
+
         current_file = Path(__file__).resolve()
         project_root = current_file.parent.parent.parent  # agentic_trading_system -> project
         
@@ -158,12 +155,6 @@ class DiscoveryConfigLoader:
             "config_path": str(self.config_path)
         }
 
-
-# =============================================================================
-# Convenience functions
-# =============================================================================
-
-# Singleton loader instance
 _loader = None
 
 
@@ -197,11 +188,6 @@ def reload_discovery_config(config_path: str = None):
     _loader = DiscoveryConfigLoader(config_path)
     return _loader.get_all()
 
-
-# =============================================================================
-# SimpleConfig for backward compatibility
-# =============================================================================
-
 class SimpleConfig:
     """Minimal config loader for backward compatibility."""
     
@@ -220,11 +206,6 @@ class SimpleConfig:
 
 # Global instance for backward compatibility
 config = SimpleConfig()
-
-
-# =============================================================================
-# Test function
-# =============================================================================
 
 if __name__ == "__main__":
     print("Testing Discovery Config Loader...\n")
