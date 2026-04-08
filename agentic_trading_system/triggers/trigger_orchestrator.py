@@ -90,10 +90,7 @@ class TriggerOrchestrator:
         except Exception as e:
             logger.error(f"❌ Failed to load triggers: {e}")
 
-    # Add this to your trigger_orchestrator.py
-
     def _create_trigger_instance(self, trigger_config: dict):
-        """Create trigger instance based on type with correct parameters"""
         trigger_type = trigger_config['type']
         trigger_name = trigger_config['name']
         priority = trigger_config.get('priority', 'MEDIUM')
@@ -102,71 +99,25 @@ class TriggerOrchestrator:
         try:
             if trigger_type == 'price_alert':
                 from agentic_trading_system.triggers.price_alert_trigger import PriceAlertTrigger
-                try:
-                    return PriceAlertTrigger(config=config, priority=priority)
-                except TypeError:
-                    try:
-                        return PriceAlertTrigger(config)
-                    except TypeError:
-                        return PriceAlertTrigger()
-
+                return PriceAlertTrigger(name=trigger_name, config=config, priority=priority)
             elif trigger_type == 'volume_spike':
                 from agentic_trading_system.triggers.volume_spike_trigger import VolumeSpikeTrigger
-                try:
-                    return VolumeSpikeTrigger(config=config, priority=priority)
-                except TypeError:
-                    try:
-                        return VolumeSpikeTrigger(config)
-                    except TypeError:
-                        return VolumeSpikeTrigger()
-
+                return VolumeSpikeTrigger(name=trigger_name, config=config, priority=priority)
             elif trigger_type == 'news_alert':
                 from agentic_trading_system.triggers.news_alert_trigger import NewsAlertTrigger
-                try:
-                    return NewsAlertTrigger(config=config, priority=priority)
-                except TypeError:
-                    try:
-                        return NewsAlertTrigger(config)
-                    except TypeError:
-                        return NewsAlertTrigger()
-
+                return NewsAlertTrigger(name=trigger_name, config=config, priority=priority)
             elif trigger_type == 'pattern_recognition':
                 from agentic_trading_system.triggers.pattern_recognition_trigger import PatternRecognitionTrigger
-                try:
-                    return PatternRecognitionTrigger(config=config, priority=priority)
-                except TypeError:
-                    try:
-                        return PatternRecognitionTrigger(config)
-                    except TypeError:
-                        return PatternRecognitionTrigger()
-
+                return PatternRecognitionTrigger(name=trigger_name, config=config, priority=priority)
             elif trigger_type == 'social_sentiment':
                 from agentic_trading_system.triggers.social_sentiment_trigger import SocialSentimentTrigger
-                try:
-                    return SocialSentimentTrigger(config=config, priority=priority)
-                except TypeError:
-                    try:
-                        return SocialSentimentTrigger(config)
-                    except TypeError:
-                        return SocialSentimentTrigger()
-
+                return SocialSentimentTrigger(name=trigger_name, config=config, priority=priority)
             elif trigger_type == 'scheduled':
                 from agentic_trading_system.triggers.scheduled_trigger import ScheduledTrigger
-                try:
-                    return ScheduledTrigger(config=config, priority=priority)
-                except TypeError:
-                    try:
-                        return ScheduledTrigger(config)
-                    except TypeError:
-                        return ScheduledTrigger()
-
+                return ScheduledTrigger(name=trigger_name, config=config, priority=priority)
             else:
                 logger.warning(f"⚠️ Unknown trigger type: {trigger_type} for {trigger_name}")
                 return None
-
-        except ImportError as e:
-            logger.error(f"❌ Failed to import trigger class for {trigger_type}: {e}")
-            return None
         except Exception as e:
             logger.error(f"❌ Failed to create trigger {trigger_name}: {e}")
             return None
@@ -203,6 +154,7 @@ class TriggerOrchestrator:
             TriggerPriority.MEDIUM: asyncio.Queue(),
             TriggerPriority.LOW: asyncio.Queue()
         }
+        
         self._shutdown_event = asyncio.Event()
 
         # Group triggers by priority
@@ -282,23 +234,38 @@ class TriggerOrchestrator:
                 pass
 
     async def _run_trigger_loop(self, trigger: BaseTrigger, priority: TriggerPriority):
+        """Run a single trigger's execution loop."""
         while self.is_running:
             try:
                 events = await trigger.execute()
-
+                
+                # Debug log for number of events
+                logger.debug(f"Trigger {trigger.name} generated {len(events)} events")
+                
                 for event in events:
-                    await self.priority_queues[priority].put(event)
-                    self.stats["total_events"] += 1
-                    self.stats["events_by_trigger"][trigger.name] = \
-                        self.stats["events_by_trigger"].get(trigger.name, 0) + 1
-
+                    # Validate confidence (optional, but good practice)
+                    if event.confidence < 0.3:
+                        logger.debug(f"Skipping {event.event_id} for {event.symbol} - low confidence {event.confidence:.2f}")
+                        continue
+                    
+                    # Place event into the correct priority queue
+                    if priority in self.priority_queues:
+                        await self.priority_queues[priority].put(event)
+                        self.stats["total_events"] += 1
+                        self.stats["events_by_trigger"][trigger.name] = \
+                            self.stats["events_by_trigger"].get(trigger.name, 0) + 1
+                        logger.info(f"📊 {trigger.name} → {event.event_type} for {event.symbol} (conf: {event.confidence:.2f})")
+                    else:
+                        logger.error(f"Priority queue {priority} not found for event {event.event_id}")
+                
+                # Sleep according to execution mode
                 if trigger.config.execution_mode == "realtime":
                     await asyncio.sleep(1)
                 elif trigger.config.execution_mode == "scheduled":
                     await asyncio.sleep(60)
                 else:
                     await asyncio.sleep(300)
-
+                    
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -329,11 +296,14 @@ class TriggerOrchestrator:
 
     async def _process_event(self, event: TriggerEvent):
         try:
+            logger.info(f"🔄 Processing event: {event.event_id} for {event.symbol} from {event.source_trigger}")
+            
             if self.message_bus and hasattr(self.message_bus, 'publish'):
                 await self.message_bus.publish(
                     topic="trigger_events",
                     message=event.dict_for_fusion()
                 )
+                logger.debug(f"📡 Published event to message bus")
 
             if self.memory and hasattr(self.memory, 'store'):
                 await self.memory.store(
@@ -341,6 +311,7 @@ class TriggerOrchestrator:
                     value=event.__dict__,
                     tier="short"
                 )
+                logger.debug(f"💾 Stored event in memory")
 
             if self.message_bus and hasattr(self.message_bus, 'send_to_agent'):
                 await self.message_bus.send_to_agent(
@@ -350,6 +321,7 @@ class TriggerOrchestrator:
                         "event": event.dict_for_fusion()
                     }
                 )
+                logger.debug(f"🔀 Sent event to FusionAgent")
 
         except Exception as e:
             self.stats["errors"] += 1
@@ -415,3 +387,4 @@ class TriggerOrchestrator:
         if not config_path.exists():
             logger.error(f"❌ Config file not found: {config_path}")
             return []
+

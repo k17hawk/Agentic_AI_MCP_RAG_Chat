@@ -25,6 +25,7 @@ from agentic_trading_system.config.settings import Settings, get_config
 
 # Import existing modules
 from agentic_trading_system.triggers.trigger_orchestrator import TriggerOrchestrator
+from agentic_trading_system.triggers.base_trigger import TriggerEvent, TriggerPriority
 from agentic_trading_system.discovery.search_aggregator import SearchAggregator
 from agentic_trading_system.prefilter.quality_gates import QualityGates
 from agentic_trading_system.analysis.analysis_orchestrator import AnalysisOrchestrator
@@ -69,6 +70,16 @@ class AgenticTradingSystem:
         self.timeout_manager = None
         self.order_manager = None
         
+        # Pipeline statistics
+        self.pipeline_stats = {
+            "events_processed": 0,
+            "events_passed_quality": 0,
+            "events_approved_risk": 0,
+            "events_executed": 0,
+            "events_rejected": 0,
+            "pipeline_errors": 0
+        }
+        
         # Initialize components synchronously
         self._init_components()
         
@@ -104,7 +115,6 @@ class AgenticTradingSystem:
                         self.logger.info(f"✅ Loaded learning config from {learning_config_path}")
                     else:
                         self.logger.warning(f"Learning config file exists but is empty, using defaults")
-                        # Create default config file
                         self._create_default_learning_config(learning_config_path, default_config)
             else:
                 self.logger.warning(f"Learning config not found at {learning_config_path}, creating default")
@@ -264,6 +274,209 @@ class AgenticTradingSystem:
                     except Exception as e:
                         self.logger.debug(f"Could not start checker for {name}: {e}")
     
+    async def _process_trigger_events(self):
+        """Process events from trigger orchestrator through the pipeline"""
+        
+        self.logger.info("🔄 Starting event processor pipeline")
+        
+        while self.running:
+            try:
+                # Get events from orchestrator's priority queues
+                if not self.trigger_orchestrator or not hasattr(self.trigger_orchestrator, 'priority_queues'):
+                    await asyncio.sleep(0.1)
+                    continue
+                
+                if not self.trigger_orchestrator.priority_queues:
+                    await asyncio.sleep(0.1)
+                    continue
+                
+                # Check all priority queues for events
+                event = None
+                event_priority = None
+                
+                for priority in [TriggerPriority.CRITICAL, TriggerPriority.HIGH, 
+                               TriggerPriority.MEDIUM, TriggerPriority.LOW]:
+                    queue = self.trigger_orchestrator.priority_queues.get(priority)
+                    if queue and not queue.empty():
+                        try:
+                            event = await asyncio.wait_for(queue.get(), timeout=0.1)
+                            event_priority = priority
+                            break
+                        except asyncio.TimeoutError:
+                            continue
+                
+                if event is None:
+                    await asyncio.sleep(0.1)
+                    continue
+                
+                # Process through pipeline
+                self.logger.info(f"📨 Processing {event_priority.name if event_priority else 'UNKNOWN'} priority event "
+                               f"for {event.symbol} from {event.source_trigger} (confidence: {event.confidence:.2f})")
+                
+                await self._run_event_pipeline(event)
+                
+            except Exception as e:
+                self.logger.error(f"Error in event processor: {e}", exc_info=True)
+                self.pipeline_stats["pipeline_errors"] += 1
+                await asyncio.sleep(1)
+        
+        self.logger.info("🛑 Event processor stopped")
+    
+    async def _run_event_pipeline(self, event: TriggerEvent):
+        """Run event through all processing stages"""
+        
+        self.logger.debug(f"🔄 Running pipeline for {event.symbol}")
+        
+        try:
+            # Stage 1: Search & Discovery
+            search_results = {}
+            if self.search_aggregator:
+                try:
+                    if hasattr(self.search_aggregator, 'process'):
+                        search_results = await self.search_aggregator.process(event)
+                    elif hasattr(self.search_aggregator, 'search'):
+                        search_results = await self.search_aggregator.search(event.symbol)
+                    else:
+                        search_results = {'signals': [], 'related_news': []}
+                    self.logger.debug(f"  ✅ Search aggregator: {len(search_results.get('signals', []))} signals")
+                except Exception as e:
+                    self.logger.warning(f"Search aggregator error: {e}")
+                    search_results = {}
+            
+            # Stage 2: Quality Gates
+            quality_passed = True
+            quality_score = 0
+            if self.quality_gates:
+                try:
+                    if hasattr(self.quality_gates, 'evaluate'):
+                        quality_result = await self.quality_gates.evaluate(event, search_results)
+                    elif hasattr(self.quality_gates, 'check'):
+                        quality_result = await self.quality_gates.check(event)
+                    else:
+                        quality_result = {'passed': True, 'score': event.confidence}
+                    
+                    quality_passed = quality_result.get('passed', False)
+                    quality_score = quality_result.get('score', 0)
+                    
+                    if not quality_passed:
+                        self.logger.info(f"  ❌ Event failed quality gates: {quality_result.get('reason', 'Unknown')}")
+                        self.pipeline_stats["events_rejected"] += 1
+                        return
+                    
+                    self.logger.debug(f"  ✅ Quality gates passed: score {quality_score:.2f}")
+                    self.pipeline_stats["events_passed_quality"] += 1
+                except Exception as e:
+                    self.logger.warning(f"Quality gates error: {e}")
+                    quality_passed = True
+            
+            # Stage 3: Analysis
+            analysis = {'confidence': event.confidence, 'technical_score': 0.5, 'sentiment_score': 0.5}
+            if self.analysis_orchestrator:
+                try:
+                    if hasattr(self.analysis_orchestrator, 'analyze'):
+                        analysis = await self.analysis_orchestrator.analyze(event, search_results)
+                    elif hasattr(self.analysis_orchestrator, 'process'):
+                        analysis = await self.analysis_orchestrator.process(event)
+                    else:
+                        analysis = {'confidence': event.confidence, 'signals': []}
+                    
+                    self.logger.debug(f"  ✅ Analysis complete: confidence {analysis.get('confidence', 0):.2f}")
+                except Exception as e:
+                    self.logger.warning(f"Analysis error: {e}")
+            
+            # Stage 4: Risk Management
+            risk_approved = True
+            position_size = 0.02
+            if self.risk_manager:
+                try:
+                    if hasattr(self.risk_manager, 'assess'):
+                        risk_assessment = await self.risk_manager.assess(event, analysis)
+                    elif hasattr(self.risk_manager, 'evaluate'):
+                        risk_assessment = await self.risk_manager.evaluate(event)
+                    else:
+                        risk_assessment = {'approved': True, 'position_size': 0.02}
+                    
+                    risk_approved = risk_assessment.get('approved', False)
+                    position_size = risk_assessment.get('position_size', 0.02)
+                    
+                    if not risk_approved:
+                        self.logger.info(f"  ❌ Risk rejected: {risk_assessment.get('reason', 'Risk limit exceeded')}")
+                        self.pipeline_stats["events_rejected"] += 1
+                        return
+                    
+                    self.logger.debug(f"  ✅ Risk approved: position size {position_size:.2%}")
+                    self.pipeline_stats["events_approved_risk"] += 1
+                except Exception as e:
+                    self.logger.warning(f"Risk manager error: {e}")
+                    risk_approved = True
+            
+            # Stage 5: Portfolio Optimization
+            portfolio_signal = {'action': 'hold', 'confidence': analysis.get('confidence', event.confidence)}
+            if self.portfolio_optimizer:
+                try:
+                    if hasattr(self.portfolio_optimizer, 'optimize'):
+                        portfolio_signal = await self.portfolio_optimizer.optimize(event, analysis, {'position_size': position_size})
+                    elif hasattr(self.portfolio_optimizer, 'process'):
+                        portfolio_signal = await self.portfolio_optimizer.process(event)
+                    else:
+                        portfolio_signal = {'action': 'hold', 'reason': 'No optimizer logic'}
+                    
+                    self.logger.debug(f"  ✅ Portfolio optimized: action {portfolio_signal.get('action', 'hold')}")
+                except Exception as e:
+                    self.logger.warning(f"Portfolio optimizer error: {e}")
+            
+            # Stage 6: Alert Management
+            if self.alert_manager and portfolio_signal.get('action') != 'hold':
+                try:
+                    if hasattr(self.alert_manager, 'send_alert'):
+                        await self.alert_manager.send_alert(event, analysis, portfolio_signal)
+                    elif hasattr(self.alert_manager, 'notify'):
+                        await self.alert_manager.notify(f"Signal: {portfolio_signal.get('action')} {event.symbol}")
+                    else:
+                        self.logger.info(f"📢 Alert: {portfolio_signal.get('action').upper()} {event.symbol} - Confidence: {analysis.get('confidence', 0):.2f}")
+                    
+                    self.logger.debug(f"  ✅ Alert sent")
+                except Exception as e:
+                    self.logger.warning(f"Alert manager error: {e}")
+            
+            # Stage 7: Execution
+            if self.execution_engine and portfolio_signal.get('action') in ['buy', 'sell']:
+                try:
+                    if hasattr(self.execution_engine, 'execute'):
+                        execution_result = await self.execution_engine.execute(portfolio_signal)
+                    elif hasattr(self.execution_engine, 'place_order'):
+                        execution_result = await self.execution_engine.place_order(
+                            symbol=event.symbol,
+                            action=portfolio_signal.get('action'),
+                            quantity=portfolio_signal.get('quantity', 100)
+                        )
+                    else:
+                        execution_result = {'status': 'simulated', 'order_id': 'sim_' + event.symbol}
+                    
+                    if execution_result.get('status') in ['completed', 'filled', 'simulated']:
+                        self.logger.info(f"  ✅ Execution: {execution_result.get('status')} - Order ID: {execution_result.get('order_id', 'N/A')}")
+                        self.pipeline_stats["events_executed"] += 1
+                    else:
+                        self.logger.warning(f"  ⚠️ Execution failed: {execution_result.get('message', 'Unknown error')}")
+                except Exception as e:
+                    self.logger.warning(f"Execution engine error: {e}")
+            
+            # Update pipeline stats
+            self.pipeline_stats["events_processed"] += 1
+            
+            # Log final decision
+            action = portfolio_signal.get('action', 'hold')
+            confidence = analysis.get('confidence', event.confidence)
+            
+            if action != 'hold':
+                self.logger.info(f"🎯 DECISION: {action.upper()} {event.symbol} | Confidence: {confidence:.2f} | Position: {position_size:.2%}")
+            else:
+                self.logger.debug(f"🎯 DECISION: HOLD {event.symbol} | Confidence: {confidence:.2f}")
+            
+        except Exception as e:
+            self.logger.error(f"Pipeline error for {event.symbol}: {e}", exc_info=True)
+            self.pipeline_stats["pipeline_errors"] += 1
+    
     async def process_market_cycle(self):
         """Execute one complete market analysis cycle"""
         cycle_start = datetime.now()
@@ -275,23 +488,33 @@ class AgenticTradingSystem:
                 self.logger.warning("Trigger orchestrator not available, skipping cycle")
                 return
             
-            # Get trigger status
-            try:
-                status = self.trigger_orchestrator.get_status()
-                self.logger.info(f"📊 Trigger status: {status.get('active_triggers', 0)} active triggers, "
-                               f"{status.get('total_events', 0)} total events")
-            except Exception as e:
-                self.logger.debug(f"Could not get trigger status: {e}")
+            # Get pipeline statistics
+            self.logger.info(f"📊 Pipeline stats: {self.pipeline_stats['events_processed']} processed, "
+                           f"{self.pipeline_stats['events_executed']} executed, "
+                           f"{self.pipeline_stats['pipeline_errors']} errors")
             
-            # Get real triggers from orchestrator if available
-            # Note: TriggerOrchestrator doesn't have detect_triggers method
-            # So we'll use the event queue or just log status
+            # Get orchestrator stats if available
+            if hasattr(self.trigger_orchestrator, 'stats'):
+                stats = self.trigger_orchestrator.stats
+                self.logger.info(f"📊 Trigger stats: {stats.get('total_events', 0)} total events, "
+                               f"{stats.get('errors', 0)} errors")
             
-            # For now, just save status as artifact
+            # Check queue sizes
+            if hasattr(self.trigger_orchestrator, 'priority_queues') and self.trigger_orchestrator.priority_queues:
+                queue_sizes = {}
+                for priority, queue in self.trigger_orchestrator.priority_queues.items():
+                    if queue:
+                        queue_sizes[priority.name if hasattr(priority, 'name') else str(priority)] = queue.qsize()
+                
+                if any(qsize > 0 for qsize in queue_sizes.values()):
+                    self.logger.info(f"📨 Events in queues: {queue_sizes}")
+            
+            # Save cycle artifacts
             await self._save_cycle_artifacts({
                 'timestamp': datetime.now().isoformat(),
-                'orchestrator_status': status if 'status' in locals() else {},
-                'status': 'running'
+                'status': 'running',
+                'pipeline_stats': self.pipeline_stats,
+                'orchestrator_stats': self.trigger_orchestrator.stats if hasattr(self.trigger_orchestrator, 'stats') else {}
             })
             
             cycle_duration = (datetime.now() - cycle_start).total_seconds()
@@ -313,6 +536,9 @@ class AgenticTradingSystem:
             triggers = self.settings.get_triggers()
             
             self.logger.info("📊 Updating system metrics")
+            self.logger.info(f"  Pipeline: {self.pipeline_stats['events_processed']} events, "
+                           f"{self.pipeline_stats['events_executed']} executed")
+            
             if risk_config:
                 self.logger.debug(f"  Risk: Max Drawdown {risk_config.get('max_drawdown', 0.2)*100:.0f}%")
             if analysis_weights:
@@ -381,6 +607,7 @@ class AgenticTradingSystem:
                     'max_drawdown': risk_config.get('max_drawdown', 0.2) if risk_config else 0.2,
                     'position_size': risk_config.get('position_size', 0.02) if risk_config else 0.02
                 } if risk_config else {},
+                'pipeline_stats': self.pipeline_stats,
                 'recommendations': []
             }
             
@@ -397,6 +624,16 @@ class AgenticTradingSystem:
                         'type': 'weight_adjustment',
                         'message': 'Weights are very balanced. Consider optimizing based on recent performance.',
                         'priority': 'low'
+                    })
+            
+            # Check pipeline performance
+            if self.pipeline_stats['events_processed'] > 0:
+                execution_rate = self.pipeline_stats['events_executed'] / self.pipeline_stats['events_processed']
+                if execution_rate < 0.3:
+                    analysis_results['recommendations'].append({
+                        'type': 'pipeline_optimization',
+                        'message': f'Low execution rate: {execution_rate:.1%}. Check risk and quality gates.',
+                        'priority': 'medium'
                     })
             
             # Save learning results
@@ -439,14 +676,21 @@ class AgenticTradingSystem:
         
         # Start the trigger orchestrator if available
         orchestrator_task = None
+        event_processor_task = None
+        
         if self.trigger_orchestrator:
             try:
                 orchestrator_task = asyncio.create_task(self.trigger_orchestrator.start())
                 self.logger.info("✅ Trigger orchestrator started")
+                
+                # Start event processor
+                event_processor_task = asyncio.create_task(self._process_trigger_events())
+                self.logger.info("✅ Event processor started")
+                
             except Exception as e:
                 self.logger.error(f"Failed to start orchestrator: {e}")
         
-        # Main loop
+        # Main loop (heartbeat and learning)
         cycle_count = 0
         while self.running:
             try:
@@ -454,7 +698,9 @@ class AgenticTradingSystem:
                 cycle_count += 1
                 
                 if cycle_count % 10 == 0:
-                    self.logger.info(f"📊 System status: {cycle_count} cycles completed, uptime: {datetime.now() - self.start_time}")
+                    self.logger.info(f"📊 System status: {cycle_count} cycles, "
+                                   f"{self.pipeline_stats['events_processed']} events processed, "
+                                   f"uptime: {datetime.now() - self.start_time}")
                 
                 # Run learning cycle at configured interval
                 hours_since_learning = (datetime.now() - self.last_learning_run).total_seconds() / 3600
@@ -464,7 +710,7 @@ class AgenticTradingSystem:
                 # Update metrics periodically
                 await self._update_system_metrics()
                 
-                await asyncio.sleep(60)
+                await asyncio.sleep(60)  # Heartbeat every minute
                 
             except asyncio.CancelledError:
                 self.logger.info("System shutdown requested")
@@ -478,6 +724,13 @@ class AgenticTradingSystem:
             orchestrator_task.cancel()
             try:
                 await orchestrator_task
+            except asyncio.CancelledError:
+                pass
+        
+        if event_processor_task:
+            event_processor_task.cancel()
+            try:
+                await event_processor_task
             except asyncio.CancelledError:
                 pass
         
@@ -519,6 +772,9 @@ class AgenticTradingSystem:
         # Learning config
         self.logger.info(f"  - Learning: {self.learning_config.get('mode', 'continuous')} mode, "
                         f"every {self.learning_config.get('interval_hours', 24)} hours")
+        
+        # Pipeline info
+        self.logger.info(f"  - Pipeline: Search → Quality → Analysis → Risk → Portfolio → Alert → Execution")
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals"""
@@ -536,6 +792,15 @@ class AgenticTradingSystem:
                 self.logger.info("Trigger orchestrator stopped")
             except Exception as e:
                 self.logger.warning(f"Error stopping orchestrator: {e}")
+        
+        # Print final stats
+        self.logger.info("📊 Final Pipeline Statistics:")
+        self.logger.info(f"  Events Processed: {self.pipeline_stats['events_processed']}")
+        self.logger.info(f"  Events Passed Quality: {self.pipeline_stats['events_passed_quality']}")
+        self.logger.info(f"  Events Approved Risk: {self.pipeline_stats['events_approved_risk']}")
+        self.logger.info(f"  Events Executed: {self.pipeline_stats['events_executed']}")
+        self.logger.info(f"  Events Rejected: {self.pipeline_stats['events_rejected']}")
+        self.logger.info(f"  Pipeline Errors: {self.pipeline_stats['pipeline_errors']}")
         
         uptime = datetime.now() - self.start_time
         self.logger.info(f"✅ System shutdown complete. Uptime: {uptime}")

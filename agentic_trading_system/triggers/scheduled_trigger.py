@@ -32,9 +32,11 @@ class ScheduledTrigger(BaseTrigger):
     - After-hours (16:00-20:00): Extended hours moves
     """
     
-    def __init__(self, config: dict, memory_agent=None, message_bus=None):
+    def __init__(self, name: str, config: dict, memory_agent=None, message_bus=None, priority=None):
+        if priority is not None:
+            config['priority'] = priority
         super().__init__(
-            name="ScheduledTrigger",
+            name=name,
             config=config,
             memory_agent=memory_agent,
             message_bus=message_bus
@@ -42,7 +44,7 @@ class ScheduledTrigger(BaseTrigger):
         
         # Market timezone (US Eastern)
         self.tz = pytz.timezone('US/Eastern')
-        
+        self.holidays = self._load_holidays()
         # Session queries
         self.session_queries = {
             MarketSession.PRE_MARKET: "Top pre-market gainers today US stocks",
@@ -62,27 +64,11 @@ class ScheduledTrigger(BaseTrigger):
             MarketSession.AFTER_HOURS: (time(16, 0), time(19, 59)),
         }
         
-        # Calendar exceptions (holidays, early closes)
+        # Calendar exceptions
         self.holidays = self._load_holidays()
         
-        logger.info("📅 ScheduledTrigger initialized")
-    
-    def _load_holidays(self) -> List[str]:
-        """Load market holidays for the year"""
-        # In production, fetch from API or config
-        current_year = datetime.now().year
-        return [
-            f"{current_year}-01-01",  # New Year's
-            f"{current_year}-01-19",  # MLK Day
-            f"{current_year}-02-16",  # Presidents Day
-            f"{current_year}-04-10",  # Good Friday
-            f"{current_year}-05-25",  # Memorial Day
-            f"{current_year}-07-04",  # Independence Day
-            f"{current_year}-09-07",  # Labor Day
-            f"{current_year}-11-26",  # Thanksgiving
-            f"{current_year}-12-25",  # Christmas
-        ]
-    
+        logger.info(f"📅 {self.name} initialized")
+
     async def scan(self) -> List[TriggerEvent]:
         """
         Scan based on current market session
@@ -137,6 +123,7 @@ class ScheduledTrigger(BaseTrigger):
         )
         
         return [event]
+    
     
     async def validate(self, event: TriggerEvent) -> bool:
         """Validate scheduled trigger events"""
@@ -205,3 +192,18 @@ class ScheduledTrigger(BaseTrigger):
         if self.memory:
             return await self.memory.get("current_market_regime")
         return None
+    
+    def _load_holidays(self) -> List[str]:
+        """Load market holidays for the year"""
+        current_year = datetime.now().year
+        return [
+            f"{current_year}-01-01",  # New Year's
+            f"{current_year}-01-19",  # MLK Day (example - should be dynamic)
+            f"{current_year}-02-16",  # Presidents Day
+            f"{current_year}-04-10",  # Good Friday
+            f"{current_year}-05-25",  # Memorial Day
+            f"{current_year}-07-04",  # Independence Day
+            f"{current_year}-09-07",  # Labor Day
+            f"{current_year}-11-26",  # Thanksgiving
+            f"{current_year}-12-25",  # Christmas
+        ]

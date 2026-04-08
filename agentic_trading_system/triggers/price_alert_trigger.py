@@ -23,9 +23,12 @@ class PriceAlertTrigger(BaseTrigger):
     - Multi-timeframe confirmation
     """
     
-    def __init__(self, config: dict, memory_agent=None, message_bus=None):
+    def __init__(self, name: str, config: dict, memory_agent=None, message_bus=None, priority=None):
+        # Merge priority into config if provided
+        if priority is not None:
+            config['priority'] = priority
         super().__init__(
-            name="PriceAlertTrigger",
+            name=name,
             config=config,
             memory_agent=memory_agent,
             message_bus=message_bus
@@ -37,10 +40,10 @@ class PriceAlertTrigger(BaseTrigger):
         self.statistics = StatisticalSignificance(config)
         
         # Watchlist (from config or default)
-        self.watchlist = config.get("watchlist", [
+        self.watchlist = config.get("symbols", config.get("watchlist", [
             "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", 
             "META", "TSLA", "JPM", "V", "WMT"
-        ])
+        ]))
         
         # Timeframes to analyze
         self.timeframes = [
@@ -53,7 +56,7 @@ class PriceAlertTrigger(BaseTrigger):
         # Cache for historical data
         self.historical_cache = {}
         
-        logger.info(f"📈 PriceAlertTrigger initialized with {len(self.watchlist)} stocks")
+        logger.info(f"📈 {self.name} initialized with {len(self.watchlist)} stocks")
     
     async def scan(self) -> List[TriggerEvent]:
         """
@@ -210,7 +213,7 @@ class PriceAlertTrigger(BaseTrigger):
         )
     
     async def _get_historical_data(self, symbol: str) -> Optional[pd.DataFrame]:
-        """Get historical data with caching"""
+        """Get historical data with caching and error handling"""
         cache_key = f"hist_{symbol}"
         cached = self.get_cache(cache_key)
         
@@ -219,16 +222,37 @@ class PriceAlertTrigger(BaseTrigger):
         
         try:
             stock = yf.Ticker(symbol)
-            data = stock.history(period="6mo")  # 6 months for 60-day window + buffer
             
-            if not data.empty:
-                self.set_cache(cache_key, data, ttl_seconds=3600)  # Cache for 1 hour
-                return data
+            try:
+                data = stock.history(period="6mo")
+            except Exception as e:
+                logger.warning(f"Could not fetch data for {symbol}: {e}")
+                return None
+            
+            if data is None or data.empty:
+                logger.warning(f"No data returned for {symbol}")
+                return None
+            
+            # Check required columns
+            required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+            for col in required_cols:
+                if col not in data.columns:
+                    logger.warning(f"Missing column {col} for {symbol}")
+                    return None
+            
+            # Remove NaN values
+            data = data.dropna()
+            
+            if len(data) < 60:
+                logger.debug(f"Insufficient data for {symbol}: only {len(data)} days")
+                return None
+            
+            self.set_cache(cache_key, data, ttl_seconds=3600)
+            return data
             
         except Exception as e:
-            logger.error(f"Error fetching {symbol}: {e}")
-        
-        return None
+            logger.error(f"Error fetching {symbol}: {type(e).__name__}: {e}")
+            return None
     
     async def _get_timeframe_data(self, symbol: str, tf: Dict) -> Optional[pd.DataFrame]:
         """Get data for specific timeframe"""
